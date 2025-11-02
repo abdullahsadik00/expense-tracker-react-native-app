@@ -1,161 +1,93 @@
 import React from 'react';
-import {
-    FlatList,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
-} from 'react-native';
+import { ScrollView, Text, View } from 'react-native';
+import { styled } from 'tailwindcss-react-native';
+import { Category, Transaction } from '../lib/database';
+import { Button } from './ui/Button';
 
-interface Expense {
-  id: string;
-  amount: string;
-  description: string;
-  category: string;
-  date: string;
-}
+const StyledView = styled(View);
+const StyledText = styled(Text);
 
 interface ExpenseListProps {
-  expenses: Expense[];
-  onDeleteExpense: (id: string) => void;
+  transactions: Transaction[];
+  onDeleteTransaction: (id: string) => void;
+  categories: Category[];
 }
 
-const ExpenseList: React.FC<ExpenseListProps> = ({ expenses, onDeleteExpense }) => {
+export default function ExpenseList({ transactions, onDeleteTransaction, categories }: ExpenseListProps) {
+  const getCategory = (categoryId: string) => {
+    return categories.find(c => c.id === categoryId);
+  };
+
   const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], { 
-      hour: '2-digit', 
-      minute: '2-digit' 
+    return new Date(dateString).toLocaleDateString('en-IN', {
+      day: '2-digit',
+      month: 'short'
     });
   };
 
-  const renderExpense = ({ item }: { item: Expense }) => (
-    <View style={styles.expenseItem}>
-      <View style={styles.expenseInfo}>
-        <Text style={styles.expenseDescription}>{item.description}</Text>
-        <Text style={styles.expenseCategory}>{item.category}</Text>
-        <Text style={styles.expenseDate}>{formatDate(item.date)}</Text>
-      </View>
-      <View style={styles.expenseAmountContainer}>
-        <Text style={styles.expenseAmount}>${item.amount}</Text>
-        <TouchableOpacity 
-          style={styles.deleteButton}
-          onPress={() => onDeleteExpense(item.id)}
-        >
-          <Text style={styles.deleteButtonText}>×</Text>
-        </TouchableOpacity>
-      </View>
-    </View>
-  );
-
-  if (expenses.length === 0) {
+  if (transactions.length === 0) {
     return (
-      <View style={styles.emptyContainer}>
-        <Text style={styles.emptyText}>No expenses yet</Text>
-        <Text style={styles.emptySubText}>Add your first expense above!</Text>
-      </View>
+      <StyledView className="py-8 items-center">
+        <StyledText className="text-muted-foreground text-lg">No transactions yet</StyledText>
+        <StyledText className="text-muted-foreground text-sm mt-2">
+          Add your first transaction above!
+        </StyledText>
+      </StyledView>
     );
   }
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Recent Expenses</Text>
-      <FlatList
-        data={expenses.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())}
-        renderItem={renderExpense}
-        keyExtractor={(item) => item.id}
-        style={styles.list}
-      />
-    </View>
+    <ScrollView>
+      {transactions.slice(0, 10).map(transaction => {
+        const category = getCategory(transaction.category_id);
+        const isExpense = transaction.amount < 0;
+        const amount = Math.abs(transaction.amount);
+
+        return (
+          <StyledView
+            key={transaction.id}
+            className="flex-row items-center justify-between py-3 border-b border-border last:border-b-0"
+          >
+            <StyledView className="flex-row items-center flex-1">
+              <StyledView 
+                className="w-10 h-10 rounded-full items-center justify-center mr-3"
+                style={{ backgroundColor: category?.color + '20' }}
+              >
+                <StyledText style={{ color: category?.color }}>
+                  {category?.icon}
+                </StyledText>
+              </StyledView>
+              
+              <StyledView className="flex-1">
+                <StyledText className="font-medium text-foreground">
+                  {transaction.description}
+                </StyledText>
+                <StyledText className="text-sm text-muted-foreground mt-1">
+                  {category?.name} • {formatDate(transaction.transaction_date)}
+                </StyledText>
+              </StyledView>
+            </StyledView>
+
+            <StyledView className="items-end">
+              <StyledText 
+                className={`font-semibold ${
+                  isExpense ? 'text-red-600' : 'text-green-600'
+                }`}
+              >
+                {isExpense ? '-' : '+'}₹{amount.toLocaleString('en-IN')}
+              </StyledText>
+              <Button
+                variant="ghost"
+                size="sm"
+                onPress={() => onDeleteTransaction(transaction.id)}
+                className="mt-1"
+              >
+                🗑️
+              </Button>
+            </StyledView>
+          </StyledView>
+        );
+      })}
+    </ScrollView>
   );
-};
-
-const styles = StyleSheet.create({
-  container: {
-    backgroundColor: '#fff',
-    margin: 20,
-    marginTop: 0,
-    borderRadius: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  title: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    padding: 20,
-    paddingBottom: 10,
-    color: '#333',
-  },
-  list: {
-    maxHeight: 400,
-  },
-  expenseItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 15,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
-  },
-  expenseInfo: {
-    flex: 1,
-  },
-  expenseDescription: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 4,
-  },
-  expenseCategory: {
-    fontSize: 14,
-    color: '#666',
-    marginBottom: 2,
-  },
-  expenseDate: {
-    fontSize: 12,
-    color: '#999',
-  },
-  expenseAmountContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  expenseAmount: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#FF3B30',
-    marginRight: 10,
-  },
-  deleteButton: {
-    padding: 5,
-    backgroundColor: '#FF3B30',
-    borderRadius: 12,
-    width: 24,
-    height: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  deleteButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  emptyContainer: {
-    alignItems: 'center',
-    padding: 40,
-  },
-  emptyText: {
-    fontSize: 18,
-    color: '#666',
-    marginBottom: 8,
-  },
-  emptySubText: {
-    fontSize: 14,
-    color: '#999',
-    textAlign: 'center',
-  },
-});
-
-export default ExpenseList;
+}

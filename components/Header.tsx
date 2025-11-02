@@ -1,58 +1,45 @@
 import React from 'react';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
-interface HeaderProps {
-  onExport: () => void;
-  onImport: () => void;
-  onClear: () => void;
-}
-
-const Header: React.FC<HeaderProps> = ({ onExport, onImport, onClear }) => {
-  return (
-    <View style={styles.header}>
-      <Text style={styles.title}>Expense Tracker</Text>
-      <View style={styles.headerButtons}>
-        <TouchableOpacity style={styles.iconButton} onPress={onImport}>
-          <Text style={styles.iconText}>📥</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.iconButton} onPress={onExport}>
-          <Text style={styles.iconText}>📤</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.iconButton} onPress={onClear}>
-          <Text style={styles.iconText}>🗑️</Text>
-        </TouchableOpacity>
-      </View>
-    </View>
-  );
+const COLORS = {
+  primary: '#1e3a8a',
+  text: '#1f2937',
+  textLight: '#6b7280',
 };
 
+interface HeaderProps {
+  title: string;
+  subtitle: string;
+}
+
+export default function Header({ title, subtitle }: HeaderProps) {
+  return (
+    <SafeAreaView edges={['top']} style={styles.headerContainer}>
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>{title}</Text>
+        <Text style={styles.headerSubtitle}>{subtitle}</Text>
+      </View>
+    </SafeAreaView>
+  );
+}
+
 const styles = StyleSheet.create({
+  headerContainer: {
+    backgroundColor: COLORS.primary,
+  },
   header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
     paddingHorizontal: 20,
-    paddingTop: 60,
-    paddingBottom: 20,
-    backgroundColor: '#fff',
-    borderBottomWidth: 1,
-    borderBottomColor: '#e0e0e0',
+    paddingVertical: 20,
   },
-  title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#333',
+  headerTitle: {
+    fontSize: 28,
+    fontWeight: '700',
+    color: '#fff',
+    marginBottom: 4,
   },
-  headerButtons: {
-    flexDirection: 'row',
-  },
-  iconButton: {
-    padding: 8,
-    marginLeft: 12,
-  },
-  iconText: {
-    fontSize: 20,
+  headerSubtitle: {
+    fontSize: 14,
+    color: 'rgba(255, 255, 255, 0.8)',
   },
 });
-
-export default Header;
