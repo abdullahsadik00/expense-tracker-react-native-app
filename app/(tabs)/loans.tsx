@@ -9,7 +9,10 @@ import {
     StyleSheet,
     Text,
     TouchableOpacity,
-    View
+    View,
+    Modal,
+    TextInput,
+    Platform
 } from 'react-native';
 import Header from '../../components/Header';
 import { db, Loan } from '../../lib/database';
@@ -29,13 +32,40 @@ const COLORS = {
 export default function LoansScreen() {
   const [loans, setLoans] = useState<Loan[]>([]);
   const [refreshing, setRefreshing] = useState(false);
+  const [modalVisible, setModalVisible] = useState(false);
+  const [persons, setPersons] = useState<any[]>([]);
+  const [bankAccounts, setBankAccounts] = useState<any[]>([]);
+  
+  // Form state
+  const [formData, setFormData] = useState({
+    person_id: '',
+    related_person_id: '',
+    bank_account_id: '',
+    loan_type: 'personal',
+    description: '',
+    principal_amount: '',
+    interest_rate: '',
+    total_amount: '',
+    amount_paid: '0',
+    loan_date: new Date().toISOString().split('T')[0],
+    due_date: '',
+    status: 'active',
+    is_urgent: false,
+    notes: ''
+  });
 
   const loadData = async () => {
     try {
       const loansData = await db.getLoans();
       setLoans(loansData);
+      
+      // Load persons and bank accounts for dropdowns
+      const personsData = await db.getPersons();
+      const accountsData = await db.getBankAccounts();
+      setPersons(personsData);
+      setBankAccounts(accountsData);
     } catch (error) {
-      Alert.alert('Error', 'Failed to load loans');
+      Alert.alert('Error', 'Failed to load data');
     } finally {
       setRefreshing(false);
     }
@@ -68,6 +98,72 @@ export default function LoansScreen() {
     return COLORS.primary;
   };
 
+  const handleInputChange = (field: string, value: string | boolean) => {
+    setFormData(prev => ({
+      ...prev,
+      [field]: value
+    }));
+  };
+
+  const calculateTotalAmount = () => {
+    const principal = parseFloat(formData.principal_amount) || 0;
+    const interestRate = parseFloat(formData.interest_rate) || 0;
+    if (principal > 0 && interestRate > 0) {
+      const interest = principal * (interestRate / 100);
+      const total = principal + interest;
+      setFormData(prev => ({
+        ...prev,
+        total_amount: total.toString()
+      }));
+    }
+  };
+
+  const handleAddLoan = async () => {
+    try {
+      // Validation
+      if (!formData.description || !formData.principal_amount || !formData.interest_rate) {
+        Alert.alert('Error', 'Please fill in all required fields');
+        return;
+      }
+
+      const loanData = {
+        ...formData,
+        principal_amount: parseFloat(formData.principal_amount),
+        interest_rate: parseFloat(formData.interest_rate),
+        total_amount: parseFloat(formData.total_amount) || parseFloat(formData.principal_amount),
+        amount_paid: parseFloat(formData.amount_paid) || 0,
+        is_urgent: Boolean(formData.is_urgent)
+      };
+
+      await db.addLoan(loanData);
+      setModalVisible(false);
+      resetForm();
+      loadData();
+      Alert.alert('Success', 'Loan added successfully');
+    } catch (error) {
+      Alert.alert('Error', 'Failed to add loan');
+    }
+  };
+
+  const resetForm = () => {
+    setFormData({
+      person_id: '',
+      related_person_id: '',
+      bank_account_id: '',
+      loan_type: 'personal',
+      description: '',
+      principal_amount: '',
+      interest_rate: '',
+      total_amount: '',
+      amount_paid: '0',
+      loan_date: new Date().toISOString().split('T')[0],
+      due_date: '',
+      status: 'active',
+      is_urgent: false,
+      notes: ''
+    });
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor={COLORS.primary} />
@@ -83,7 +179,9 @@ export default function LoansScreen() {
         <View style={styles.summaryContainer}>
           <View style={styles.summaryCard}>
             <MaterialCommunityIcons name="cash" size={24} color={COLORS.primary} />
-            <Text style={styles.summaryValue}>{loans.length}</Text>
+            <Text style={styles.summaryValue}>
+              {loans.filter(loan => loan.status !== 'completed').length}
+            </Text>
             <Text style={styles.summaryLabel}>Active Loans</Text>
           </View>
           <View style={styles.summaryCard}>
@@ -105,7 +203,10 @@ export default function LoansScreen() {
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Your Loans</Text>
-            <TouchableOpacity style={styles.addButton}>
+            <TouchableOpacity 
+              style={styles.addButton}
+              onPress={() => setModalVisible(true)}
+            >
               <MaterialCommunityIcons name="plus" size={20} color="#fff" />
               <Text style={styles.addButtonText}>Add Loan</Text>
             </TouchableOpacity>
@@ -186,13 +287,185 @@ export default function LoansScreen() {
               <Text style={styles.emptySubtitle}>
                 Track your loans and repayment schedules here
               </Text>
-              <TouchableOpacity style={styles.createLoanButton}>
+              <TouchableOpacity 
+                style={styles.createLoanButton}
+                onPress={() => setModalVisible(true)}
+              >
                 <Text style={styles.createLoanText}>Add Loan</Text>
               </TouchableOpacity>
             </View>
           )}
         </View>
       </ScrollView>
+
+      {/* Add Loan Modal */}
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={modalVisible}
+        onRequestClose={() => setModalVisible(false)}
+      >
+        <View style={styles.modalContainer}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Add New Loan</Text>
+              <TouchableOpacity 
+                onPress={() => setModalVisible(false)}
+                style={styles.closeButton}
+              >
+                <MaterialCommunityIcons name="close" size={24} color={COLORS.text} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView style={styles.modalBody}>
+              <Text style={styles.inputLabel}>Description *</Text>
+              <TextInput
+                style={styles.textInput}
+                value={formData.description}
+                onChangeText={(value) => handleInputChange('description', value)}
+                placeholder="Enter loan description"
+              />
+
+              <Text style={styles.inputLabel}>Loan Type</Text>
+              <View style={styles.radioContainer}>
+                {['personal', 'business', 'home', 'car', 'education'].map((type) => (
+                  <TouchableOpacity
+                    key={type}
+                    style={styles.radioOption}
+                    onPress={() => handleInputChange('loan_type', type)}
+                  >
+                    <View style={styles.radioCircle}>
+                      {formData.loan_type === type && <View style={styles.radioSelected} />}
+                    </View>
+                    <Text style={styles.radioText}>{type.charAt(0).toUpperCase() + type.slice(1)}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <View style={styles.row}>
+                <View style={styles.halfInput}>
+                  <Text style={styles.inputLabel}>Principal Amount *</Text>
+                  <TextInput
+                    style={styles.textInput}
+                    value={formData.principal_amount}
+                    onChangeText={(value) => handleInputChange('principal_amount', value)}
+                    onBlur={calculateTotalAmount}
+                    placeholder="0.00"
+                    keyboardType="numeric"
+                  />
+                </View>
+                <View style={styles.halfInput}>
+                  <Text style={styles.inputLabel}>Interest Rate % *</Text>
+                  <TextInput
+                    style={styles.textInput}
+                    value={formData.interest_rate}
+                    onChangeText={(value) => handleInputChange('interest_rate', value)}
+                    onBlur={calculateTotalAmount}
+                    placeholder="0.0"
+                    keyboardType="numeric"
+                  />
+                </View>
+              </View>
+
+              <View style={styles.row}>
+                <View style={styles.halfInput}>
+                  <Text style={styles.inputLabel}>Total Amount</Text>
+                  <TextInput
+                    style={styles.textInput}
+                    value={formData.total_amount}
+                    onChangeText={(value) => handleInputChange('total_amount', value)}
+                    placeholder="0.00"
+                    keyboardType="numeric"
+                    editable={false}
+                  />
+                </View>
+                <View style={styles.halfInput}>
+                  <Text style={styles.inputLabel}>Amount Paid</Text>
+                  <TextInput
+                    style={styles.textInput}
+                    value={formData.amount_paid}
+                    onChangeText={(value) => handleInputChange('amount_paid', value)}
+                    placeholder="0.00"
+                    keyboardType="numeric"
+                  />
+                </View>
+              </View>
+
+              <View style={styles.row}>
+                <View style={styles.halfInput}>
+                  <Text style={styles.inputLabel}>Loan Date</Text>
+                  <TextInput
+                    style={styles.textInput}
+                    value={formData.loan_date}
+                    onChangeText={(value) => handleInputChange('loan_date', value)}
+                    placeholder="YYYY-MM-DD"
+                  />
+                </View>
+                <View style={styles.halfInput}>
+                  <Text style={styles.inputLabel}>Due Date</Text>
+                  <TextInput
+                    style={styles.textInput}
+                    value={formData.due_date}
+                    onChangeText={(value) => handleInputChange('due_date', value)}
+                    placeholder="YYYY-MM-DD"
+                  />
+                </View>
+              </View>
+
+              <Text style={styles.inputLabel}>Status</Text>
+              <View style={styles.radioContainer}>
+                {['active', 'completed', 'overdue'].map((status) => (
+                  <TouchableOpacity
+                    key={status}
+                    style={styles.radioOption}
+                    onPress={() => handleInputChange('status', status)}
+                  >
+                    <View style={styles.radioCircle}>
+                      {formData.status === status && <View style={styles.radioSelected} />}
+                    </View>
+                    <Text style={styles.radioText}>{status.charAt(0).toUpperCase() + status.slice(1)}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <TouchableOpacity
+                style={styles.checkboxContainer}
+                onPress={() => handleInputChange('is_urgent', !formData.is_urgent)}
+              >
+                <View style={styles.checkbox}>
+                  {formData.is_urgent && <MaterialCommunityIcons name="check" size={16} color="#fff" />}
+                </View>
+                <Text style={styles.checkboxLabel}>Mark as Urgent</Text>
+              </TouchableOpacity>
+
+              <Text style={styles.inputLabel}>Notes</Text>
+              <TextInput
+                style={[styles.textInput, styles.textArea]}
+                value={formData.notes}
+                onChangeText={(value) => handleInputChange('notes', value)}
+                placeholder="Additional notes..."
+                multiline
+                numberOfLines={3}
+              />
+
+              <View style={styles.modalActions}>
+                <TouchableOpacity 
+                  style={styles.cancelButton}
+                  onPress={() => setModalVisible(false)}
+                >
+                  <Text style={styles.cancelButtonText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  style={styles.saveButton}
+                  onPress={handleAddLoan}
+                >
+                  <Text style={styles.saveButtonText}>Save Loan</Text>
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -399,5 +672,143 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: '600',
     fontSize: 14,
+  },
+  // Modal Styles
+  modalContainer: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+  },
+  modalContent: {
+    backgroundColor: COLORS.surface,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    maxHeight: '90%',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: COLORS.text,
+  },
+  closeButton: {
+    padding: 4,
+  },
+  modalBody: {
+    padding: 20,
+  },
+  inputLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: COLORS.text,
+    marginBottom: 8,
+    marginTop: 16,
+  },
+  textInput: {
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 16,
+    backgroundColor: COLORS.background,
+  },
+  textArea: {
+    minHeight: 80,
+    textAlignVertical: 'top',
+  },
+  row: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  halfInput: {
+    flex: 1,
+  },
+  radioContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+  },
+  radioOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginRight: 16,
+  },
+  radioCircle: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: COLORS.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 8,
+  },
+  radioSelected: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: COLORS.primary,
+  },
+  radioText: {
+    fontSize: 14,
+    color: COLORS.text,
+  },
+  checkboxContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 16,
+  },
+  checkbox: {
+    width: 20,
+    height: 20,
+    borderRadius: 4,
+    borderWidth: 2,
+    borderColor: COLORS.primary,
+    backgroundColor: COLORS.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 8,
+  },
+  checkboxLabel: {
+    fontSize: 14,
+    color: COLORS.text,
+    fontWeight: '600',
+  },
+  modalActions: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 24,
+  },
+  cancelButton: {
+    flex: 1,
+    padding: 16,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    alignItems: 'center',
+  },
+  cancelButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: COLORS.text,
+  },
+  saveButton: {
+    flex: 1,
+    padding: 16,
+    borderRadius: 8,
+    backgroundColor: COLORS.primary,
+    alignItems: 'center',
+  },
+  saveButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#fff',
   },
 });

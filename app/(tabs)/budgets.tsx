@@ -1,4 +1,7 @@
+// app/budgets.tsx
 import AddBudgetModal from '@/components/AddBudgetModal';
+import Header from '@/components/Header';
+import { BankAccount, Budget, Category, db, Person } from '@/lib/database';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import React, { useEffect, useState } from 'react';
 import {
@@ -12,8 +15,9 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
-import Header from '../../components/Header';
-import { Budget, Category, db } from '../../lib/database';
+// import Header from '../components/Header';
+// import AddBudgetModal from '../components/AddBudgetModal';
+// import { Budget, Category, db, Person, BankAccount } from '../lib/database';
 
 const COLORS = {
   primary: '#1e3a8a',
@@ -24,31 +28,43 @@ const COLORS = {
   text: '#1f2937',
   textLight: '#6b7280',
   danger: '#ef4444',
-  border: '#e5e7eb'
+  border: '#e5e7eb',
+  warning: '#f59e0b',
 };
 
 export default function BudgetsScreen() {
   const [budgets, setBudgets] = useState<Budget[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [persons, setPersons] = useState<Person[]>([]);
+  const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
   const [refreshing, setRefreshing] = useState(false);
-  const [showAddBudget, setShowAddBudget] = useState(false); // Add this line
+  const [showAddBudget, setShowAddBudget] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   const loadData = async () => {
     try {
-      const [budgetsData, categoriesData] = await Promise.all([
+      setLoading(true);
+      const [budgetsData, categoriesData, personsData, accountsData] = await Promise.all([
         db.getBudgets(),
-        db.getCategories()
+        db.getCategories(),
+        db.getPersons(),
+        db.getBankAccounts()
       ]);
       setBudgets(budgetsData);
       setCategories(categoriesData);
+      setPersons(personsData);
+      setBankAccounts(accountsData);
     } catch (error) {
+      console.error('Error loading budgets:', error);
       Alert.alert('Error', 'Failed to load budgets');
     } finally {
       setRefreshing(false);
+      setLoading(false);
     }
   };
+
   const handleBudgetAdded = () => {
-    loadData(); // Refresh the list
+    loadData();
   };
 
   useEffect(() => {
@@ -60,20 +76,64 @@ export default function BudgetsScreen() {
     loadData();
   };
 
-  const getCategoryName = (categoryId: string) => {
+  const getCategoryName = (categoryId: string | null) => {
+    if (!categoryId) return 'All Categories';
     const category = categories.find(c => c.id === categoryId);
-    return category?.name || 'All Categories';
+    return category?.name || 'Unknown Category';
+  };
+
+  const getPersonName = (personId: string) => {
+    const person = persons.find(p => p.id === personId);
+    return person?.name || 'Unknown Person';
+  };
+
+  const getBankAccountName = (accountId: string | null) => {
+    if (!accountId) return 'All Accounts';
+    const account = bankAccounts.find(a => a.id === accountId);
+    return account?.bank_name || 'Unknown Account';
   };
 
   const getProgressPercentage = (spent: number, total: number) => {
+    if (total === 0) return 0;
     return Math.min((spent / total) * 100, 100);
   };
 
   const getProgressColor = (percentage: number) => {
-    if (percentage >= 90) return COLORS.danger;
-    if (percentage >= 75) return COLORS.accent;
+    if (percentage >= 100) return COLORS.danger;
+    if (percentage >= 80) return COLORS.warning;
     return COLORS.secondary;
   };
+
+  const getStatusText = (percentage: number) => {
+    if (percentage >= 100) return 'Over Budget';
+    if (percentage >= 80) return 'Almost There';
+    return 'On Track';
+  };
+
+  const formatMonth = (monthString: string) => {
+    try {
+      return new Date(monthString).toLocaleDateString('en-US', { 
+        month: 'long', 
+        year: 'numeric' 
+      });
+    } catch {
+      return monthString;
+    }
+  };
+
+  // Show loading indicator
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <StatusBar barStyle="light-content" backgroundColor={COLORS.primary} />
+        <Header title="Budgets" subtitle="Manage your spending limits" />
+        <View style={styles.loadingContainer}>
+          <MaterialCommunityIcons name="loading" size={48} color={COLORS.primary} />
+          <Text style={styles.loadingText}>Loading budgets...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container}>
@@ -89,12 +149,10 @@ export default function BudgetsScreen() {
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Monthly Budgets</Text>
-            <TouchableOpacity style={styles.addButton} 
-            onPress={() => {
-              console.log('Add Budget button clicked')
-              setShowAddBudget(true); // 👈 Show the modal
-              ;
-            }}>
+            <TouchableOpacity 
+              style={styles.addButton}
+              onPress={() => setShowAddBudget(true)}
+            >
               <MaterialCommunityIcons name="plus" size={20} color="#fff" />
               <Text style={styles.addButtonText}>Add Budget</Text>
             </TouchableOpacity>
@@ -104,21 +162,26 @@ export default function BudgetsScreen() {
             budgets.map((budget) => {
               const progress = getProgressPercentage(budget.spent_amount, budget.amount);
               const progressColor = getProgressColor(progress);
+              const statusText = getStatusText(progress);
+              const remaining = budget.amount - budget.spent_amount;
               
               return (
                 <View key={budget.id} style={styles.budgetCard}>
                   <View style={styles.budgetHeader}>
-                    <View>
+                    <View style={styles.budgetInfo}>
                       <Text style={styles.budgetName}>
-                        {getCategoryName(budget.category_id || '')}
+                        {getCategoryName(budget.category_id??null)}
+                      </Text>
+                      <Text style={styles.budgetMeta}>
+                        {getPersonName(budget.person_id)} • {getBankAccountName(budget.bank_account_id ?? null)}
                       </Text>
                       <Text style={styles.budgetMonth}>
-                        {new Date(budget.month).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+                        {formatMonth(budget.month)}
                       </Text>
                     </View>
                     <View style={styles.budgetAmounts}>
-                      <Text style={styles.spentAmount}>₹{budget.spent_amount.toFixed(2)}</Text>
-                      <Text style={styles.totalAmount}>/ ₹{budget.amount.toFixed(2)}</Text>
+                      <Text style={styles.spentAmount}>₹{budget.spent_amount.toLocaleString()}</Text>
+                      <Text style={styles.totalAmount}>/ ₹{budget.amount.toLocaleString()}</Text>
                     </View>
                   </View>
                   
@@ -135,12 +198,31 @@ export default function BudgetsScreen() {
                   </View>
                   
                   <View style={styles.budgetFooter}>
-                    <Text style={styles.remainingText}>
-                      ₹{(budget.amount - budget.spent_amount).toFixed(2)} remaining
-                    </Text>
-                    {budget.rollover_unused && (
-                      <MaterialCommunityIcons name="autorenew" size={16} color={COLORS.primary} />
-                    )}
+                    <View style={styles.footerLeft}>
+                      <Text style={styles.remainingText}>
+                        ₹{remaining.toLocaleString()} remaining
+                      </Text>
+                      <Text style={[styles.statusText, { color: progressColor }]}>
+                        {statusText}
+                      </Text>
+                    </View>
+                    <View style={styles.footerRight}>
+                      {budget.rollover_unused && (
+                        <MaterialCommunityIcons 
+                          name="autorenew" 
+                          size={16} 
+                          color={COLORS.primary} 
+                        />
+                      )}
+                      {budget.notifications_enabled && (
+                        <MaterialCommunityIcons 
+                          name="bell-outline" 
+                          size={16} 
+                          color={COLORS.accent} 
+                          style={styles.footerIcon}
+                        />
+                      )}
+                    </View>
                   </View>
                 </View>
               );
@@ -152,7 +234,10 @@ export default function BudgetsScreen() {
               <Text style={styles.emptySubtitle}>
                 Create budgets to track your spending and save money
               </Text>
-              <TouchableOpacity style={styles.createBudgetButton}>
+              <TouchableOpacity 
+                style={styles.createBudgetButton}
+                onPress={() => setShowAddBudget(true)}
+              >
                 <Text style={styles.createBudgetText}>Create Your First Budget</Text>
               </TouchableOpacity>
             </View>
@@ -160,22 +245,25 @@ export default function BudgetsScreen() {
         </View>
 
         {/* Budget Tips */}
-        <View style={styles.tipsSection}>
-          <Text style={styles.tipsTitle}>Budgeting Tips</Text>
-          <View style={styles.tipItem}>
-            <MaterialCommunityIcons name="lightbulb" size={20} color={COLORS.accent} />
-            <Text style={styles.tipText}>Set realistic budgets based on your past spending</Text>
+        {budgets.length > 0 && (
+          <View style={styles.tipsSection}>
+            <Text style={styles.tipsTitle}>Budgeting Tips</Text>
+            <View style={styles.tipItem}>
+              <MaterialCommunityIcons name="lightbulb-outline" size={20} color={COLORS.accent} />
+              <Text style={styles.tipText}>Set realistic budgets based on your past spending</Text>
+            </View>
+            <View style={styles.tipItem}>
+              <MaterialCommunityIcons name="lightbulb-outline" size={20} color={COLORS.accent} />
+              <Text style={styles.tipText}>Review and adjust budgets monthly</Text>
+            </View>
+            <View style={styles.tipItem}>
+              <MaterialCommunityIcons name="lightbulb-outline" size={20} color={COLORS.accent} />
+              <Text style={styles.tipText}>Use rollover for flexible categories</Text>
+            </View>
           </View>
-          <View style={styles.tipItem}>
-            <MaterialCommunityIcons name="lightbulb" size={20} color={COLORS.accent} />
-            <Text style={styles.tipText}>Review and adjust budgets monthly</Text>
-          </View>
-          <View style={styles.tipItem}>
-            <MaterialCommunityIcons name="lightbulb" size={20} color={COLORS.accent} />
-            <Text style={styles.tipText}>Use rollover for flexible categories</Text>
-          </View>
-        </View>
+        )}
       </ScrollView>
+
       <AddBudgetModal
         visible={showAddBudget}
         onClose={() => setShowAddBudget(false)}
@@ -192,6 +280,16 @@ const styles = StyleSheet.create({
   },
   scroll: {
     flex: 1,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: COLORS.textLight,
   },
   section: {
     padding: 20,
@@ -238,14 +336,22 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     marginBottom: 12,
   },
+  budgetInfo: {
+    flex: 1,
+  },
   budgetName: {
     fontSize: 16,
     fontWeight: '600',
     color: COLORS.text,
     marginBottom: 4,
   },
+  budgetMeta: {
+    fontSize: 12,
+    color: COLORS.textLight,
+    marginBottom: 2,
+  },
   budgetMonth: {
-    fontSize: 14,
+    fontSize: 12,
     color: COLORS.textLight,
   },
   budgetAmounts: {
@@ -288,9 +394,24 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
   },
+  footerLeft: {
+    flex: 1,
+  },
   remainingText: {
     fontSize: 14,
     color: COLORS.textLight,
+    marginBottom: 2,
+  },
+  statusText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  footerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  footerIcon: {
+    marginLeft: 8,
   },
   emptyState: {
     alignItems: 'center',

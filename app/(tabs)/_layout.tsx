@@ -1,3 +1,4 @@
+// app/(tabs)/_layout.tsx
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Tabs } from 'expo-router';
 
@@ -7,7 +8,7 @@ export default function TabLayout() {
       screenOptions={{
         headerShown: false,
         tabBarStyle: {
-          display: 'none', // Hide default tab bar since we have custom one
+          backgroundColor: '#ffffff',
         },
       }}
     >
@@ -57,20 +58,12 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="import"
-        options={{
-          title: 'Import',
-          tabBarIcon: ({ color, size }) => (
-            <MaterialCommunityIcons name="import" size={size} color={color} />
-          ),
-        }}
-      />
-      {/* Keep the explore screen for now to avoid errors */}
-      <Tabs.Screen
         name="explore"
         options={{
-          title:'hello',
-          href: null, // Hide from navigation
+          title: 'More',
+          tabBarIcon: ({ color, size }) => (
+            <MaterialCommunityIcons name="dots-horizontal" size={size} color={color} />
+          ),
         }}
       />
     </Tabs>

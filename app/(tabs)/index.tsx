@@ -1,4 +1,9 @@
-import { useLocalSearchParams } from 'expo-router';
+// app/(tabs)/index.tsx
+import AddTransactionModal from '@/components/AddTransactionModal';
+import Header from '@/components/Header';
+import { BankAccount, Budget, db, Transaction } from '@/lib/database';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
   Alert,
@@ -8,68 +13,58 @@ import {
   StatusBar,
   StyleSheet,
   Text,
+  TouchableOpacity,
   View
 } from 'react-native';
 
-import { backupService } from '../../lib/backup';
-import { db, Transaction } from '../../lib/database';
-
-// Import Components
-import AddExpenseModal from '../../components/AddExpenseModal';
-import BalanceCard from '../../components/BalanceCard';
-import BottomNav from '../../components/BottomNav';
-import CategoryBreakdown from '../../components/CategoryBreakdown';
-import ExpenseItem from '../../components/ExpenseItem';
-import Header from '../../components/Header';
-import StatsCard from '../../components/StatsCard';
-
-// Import Tab Screens
-import BudgetsScreen from './budgets';
-// import SavingsScreen from './savings';
-import ImportScreen from './import';
-import InvestmentsScreen from './investments';
-import LoansScreen from './loans';
-
 const COLORS = {
+  primary: '#1e3a8a',
+  secondary: '#10b981',
+  accent: '#f59e0b',
   background: '#f8fafc',
   surface: '#ffffff',
   text: '#1f2937',
   textLight: '#6b7280',
+  danger: '#ef4444',
+  border: '#e5e7eb',
+  warning: '#f59e0b',
+  income: '#10b981',
+  expense: '#ef4444',
 };
 
-const EXPENSE_CATEGORIES = [
-  { id: '1', name: 'Food', icon: 'food', color: '#f59e0b' },
-  { id: '2', name: 'Transport', icon: 'car', color: '#8b5cf6' },
-  { id: '3', name: 'Shopping', icon: 'shopping', color: '#ec4899' },
-  { id: '4', name: 'Bills', icon: 'receipt', color: '#3b82f6' },
-  { id: '5', name: 'Entertainment', icon: 'movie', color: '#06b6d4' },
-  { id: '6', name: 'Health', icon: 'hospital-box', color: '#10b981' },
-  { id: '7', name: 'Other', icon: 'dots-horizontal', color: '#6b7280' },
-];
-
-export default function MainApp() {
-  const params = useLocalSearchParams();
-  const initialTab = params.tab as string || 'home';
-  
+export default function HomeScreen() {
+  const router = useRouter();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
+  const [budgets, setBudgets] = useState<Budget[]>([]);
   const [refreshing, setRefreshing] = useState(false);
-  
-  const [activeTab, setActiveTab] = useState(initialTab);
-  const [showAddExpense, setShowAddExpense] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [showAddTransaction, setShowAddTransaction] = useState(false);
 
   const loadData = async () => {
     try {
       setLoading(true);
-      const transactionsData = await db.getTransactions();
+      const [transactionsData, accountsData, budgetsData] = await Promise.all([
+        db.getTransactions(),
+        db.getBankAccounts(),
+        db.getBudgets()
+      ]);
       setTransactions(transactionsData);
+      setBankAccounts(accountsData);
+      setBudgets(budgetsData);
     } catch (error) {
-      Alert.alert('Error', 'Failed to load data');
       console.error('Load error:', error);
+      if (!loading) {
+        Alert.alert('Error', 'Failed to load data');
+      }
     } finally {
-      setLoading(false);
       setRefreshing(false);
+      setLoading(false);
     }
+  };
+
+  const handleTransactionAdded = () => {
+    loadData();
   };
 
   useEffect(() => {
@@ -81,219 +76,35 @@ export default function MainApp() {
     loadData();
   };
 
-  const handleAddExpense = async ({ amount, description, categoryId }: { amount: string; description: string; categoryId: string }) => {
-    const numericAmount = parseFloat(amount);
-    if (isNaN(numericAmount) || numericAmount <= 0) {
-      Alert.alert('Error', 'Please enter a valid amount');
-      return;
-    }
-
-    try {
-      const transactionData = {
-        bank_account_id: 'default_account',
-        category_id: categoryId,
-        person_id: 'default_user',
-        transaction_date: new Date().toISOString().split('T')[0],
-        amount: -numericAmount,
-        type: 'expense',
-        description: description,
-        merchant: '',
-        is_recurring: false,
-        is_investment: false,
-        is_verified: true,
-      } as const;
-
-      const newTransaction = await db.createTransaction(transactionData);
-      setTransactions(prev => [newTransaction, ...prev]);
-      setShowAddExpense(false);
-      Alert.alert('Success', 'Expense added successfully');
-    } catch (error) {
-      Alert.alert('Error', 'Failed to add expense');
-    }
-  };
-
-  const handleDeleteExpense = async (id: string) => {
-    Alert.alert(
-      'Delete Expense',
-      'Are you sure you want to delete this expense?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await db.deleteTransaction(id);
-              setTransactions(prev => prev.filter(t => t.id !== id));
-            } catch (error) {
-              Alert.alert('Error', 'Failed to delete expense');
-            }
-          },
-        },
-      ]
-    );
-  };
-
-  const exportData = async () => {
-    try {
-      await backupService.exportData();
-    } catch (error) {
-      Alert.alert('Error', 'Failed to export data');
-    }
-  };
-
-  // Calculations for home screen
+  // Calculate dashboard metrics
+  const totalBalance = bankAccounts.reduce((sum, account) => sum + account.current_balance, 0);
+  const totalIncome = transactions
+    .filter(t => t.type === 'income')
+    .reduce((sum, t) => sum + Math.abs(t.amount), 0);
   const totalExpenses = transactions
     .filter(t => t.type === 'expense')
     .reduce((sum, t) => sum + Math.abs(t.amount), 0);
+  const netSavings = totalIncome - totalExpenses;
 
-  const totalIncome = transactions
-    .filter(t => t.type === 'income')
-    .reduce((sum, t) => sum + t.amount, 0);
+  // Recent transactions (last 5)
+  const recentTransactions = transactions.slice(0, 5);
 
-  const averageExpense = transactions.length > 0 ? totalExpenses / transactions.length : 0;
-  const highestExpense = transactions.length > 0 ? 
-    Math.max(...transactions.map(e => Math.abs(e.amount))) : 0;
+  // Budget progress
+  const activeBudgets = budgets.filter(budget => {
+    const budgetMonth = new Date(budget.month).getMonth();
+    const currentMonth = new Date().getMonth();
+    return budgetMonth === currentMonth;
+  });
 
-  const categoryStats = EXPENSE_CATEGORIES.map(cat => ({
-    id: cat.id,
-    name: cat.name,
-    color: cat.color,
-    total: transactions
-      .filter(exp => exp.category_id === cat.id)
-      .reduce((sum, exp) => sum + Math.abs(exp.amount), 0),
-    count: transactions.filter(exp => exp.category_id === cat.id).length
-  }));
-
-  const renderActiveScreen = () => {
-    switch (activeTab) {
-      case 'home':
-        return (
-          <ScrollView 
-            style={styles.scroll} 
-            showsVerticalScrollIndicator={false}
-            refreshControl={
-              <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-            }
-          >
-            <BalanceCard totalExpenses={totalExpenses} />
-
-            {/* Quick Stats */}
-            <View style={styles.statsContainer}>
-              <StatsCard 
-                icon="chart-pie" 
-                value={transactions.length.toString()} 
-                label="Transactions" 
-              />
-              <StatsCard 
-                icon="trending-up" 
-                value={`$${averageExpense.toFixed(0)}`} 
-                label="Average" 
-                color="#10b981"
-              />
-              <StatsCard 
-                icon="calendar" 
-                value={`$${highestExpense.toFixed(0)}`} 
-                label="Highest" 
-                color="#f59e0b"
-              />
-            </View>
-
-            {/* Recent Expenses */}
-            <View style={styles.section}>
-              <View style={styles.sectionHeader}>
-                <Text style={styles.sectionTitle}>Recent Expenses</Text>
-                <Text style={styles.seeAll} onPress={() => setActiveTab('list')}>
-                  See all
-                </Text>
-              </View>
-
-              {transactions.length > 0 ? (
-                transactions.slice(0, 5).map((transaction) => (
-                  <ExpenseItem
-                    key={transaction.id}
-                    id={transaction.id}
-                    amount={transaction.amount}
-                    description={transaction.description}
-                    categoryId={transaction.category_id}
-                    date={transaction.transaction_date}
-                  />
-                ))
-              ) : (
-                <Text style={styles.emptyText}>No expenses yet</Text>
-              )}
-            </View>
-
-            {/* Category Breakdown */}
-            <CategoryBreakdown categories={categoryStats} />
-          </ScrollView>
-        );
-
-      case 'budgets':
-        return <BudgetsScreen />;
-      
-      // case 'savings':
-      //   return <SavingsScreen />;
-      
-      case 'investments':
-        return <InvestmentsScreen />;
-      
-      case 'loans':
-        return <LoansScreen />;
-      
-      case 'import':
-        return <ImportScreen />;
-      
-      case 'list':
-        return (
-          <ScrollView 
-            style={styles.scroll}
-            refreshControl={
-              <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-            }
-          >
-            <View style={styles.section}>
-              <View style={styles.sectionHeader}>
-                <Text style={styles.sectionTitle}>All Transactions</Text>
-                <Text style={styles.seeAll} onPress={exportData}>
-                  Export
-                </Text>
-              </View>
-              {transactions.length > 0 ? (
-                transactions.map((transaction) => (
-                  <ExpenseItem
-                    key={transaction.id}
-                    id={transaction.id}
-                    amount={transaction.amount}
-                    description={transaction.description}
-                    categoryId={transaction.category_id}
-                    date={transaction.transaction_date}
-                    showDelete={true}
-                    onDelete={handleDeleteExpense}
-                  />
-                ))
-              ) : (
-                <Text style={styles.emptyText}>No transactions to display</Text>
-              )}
-            </View>
-          </ScrollView>
-        );
-
-      default:
-        return (
-          <View style={styles.centerContainer}>
-            <Text style={styles.emptyText}>Screen not found</Text>
-          </View>
-        );
-    }
-  };
-
-  if (loading && !refreshing && activeTab === 'home') {
+  // Show loading indicator
+  if (loading) {
     return (
       <SafeAreaView style={styles.container}>
-        <StatusBar barStyle="light-content" backgroundColor="#1e3a8a" />
+        <StatusBar barStyle="light-content" backgroundColor={COLORS.primary} />
+        <Header title="Home" subtitle="Your financial overview" />
         <View style={styles.loadingContainer}>
-          <Text style={styles.loadingText}>Loading your finances...</Text>
+          <MaterialCommunityIcons name="loading" size={48} color={COLORS.primary} />
+          <Text style={styles.loadingText}>Loading...</Text>
         </View>
       </SafeAreaView>
     );
@@ -301,27 +112,186 @@ export default function MainApp() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#1e3a8a" />
-      
-      {/* Show header only on home and list screens */}
-      {(activeTab === 'home' || activeTab === 'list') && (
-        <Header title="Expense Tracker" subtitle="Manage your finances" />
-      )}
+    <StatusBar barStyle="light-content" backgroundColor={COLORS.primary} />
+    <Header title="Home" subtitle="Your financial overview" />
+    
+    <ScrollView 
+      style={styles.scroll}
+      refreshControl={
+        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+      }
+    >
+        {/* Quick Actions */}
+        <View style={styles.quickActions}>
+          <TouchableOpacity 
+            style={styles.quickActionButton}
+            onPress={() => setShowAddTransaction(true)}
+          >
+            <MaterialCommunityIcons name="plus-circle" size={24} color={COLORS.primary} />
+            <Text style={styles.quickActionText}>Add Transaction</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.quickActionButton}>
+            <MaterialCommunityIcons name="chart-pie" size={24} color={COLORS.accent} />
+            <Text style={styles.quickActionText}>Budgets</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.quickActionButton}>
+            <MaterialCommunityIcons name="trending-up" size={24} color={COLORS.secondary} />
+            <Text style={styles.quickActionText}>Reports</Text>
+          </TouchableOpacity>
+        </View>
 
-      {renderActiveScreen()}
+        {/* Dashboard Cards */}
+        <View style={styles.dashboardSection}>
+          <Text style={styles.sectionTitle}>Financial Overview</Text>
+          <View style={styles.dashboardGrid}>
+            <View style={styles.dashboardCard}>
+              <MaterialCommunityIcons name="wallet" size={24} color={COLORS.primary} />
+              <Text style={styles.dashboardValue}>₹{totalBalance.toLocaleString()}</Text>
+              <Text style={styles.dashboardLabel}>Total Balance</Text>
+            </View>
+            <View style={styles.dashboardCard}>
+              <MaterialCommunityIcons name="arrow-down" size={24} color={COLORS.income} />
+              <Text style={styles.dashboardValue}>₹{totalIncome.toLocaleString()}</Text>
+              <Text style={styles.dashboardLabel}>Income</Text>
+            </View>
+            <View style={styles.dashboardCard}>
+              <MaterialCommunityIcons name="arrow-up" size={24} color={COLORS.expense} />
+              <Text style={styles.dashboardValue}>₹{totalExpenses.toLocaleString()}</Text>
+              <Text style={styles.dashboardLabel}>Expenses</Text>
+            </View>
+            <View style={styles.dashboardCard}>
+              <MaterialCommunityIcons 
+                name="piggy-bank" 
+                size={24} 
+                color={netSavings >= 0 ? COLORS.secondary : COLORS.danger} 
+              />
+              <Text style={[
+                styles.dashboardValue,
+                { color: netSavings >= 0 ? COLORS.secondary : COLORS.danger }
+              ]}>
+                ₹{Math.abs(netSavings).toLocaleString()}
+              </Text>
+              <Text style={styles.dashboardLabel}>
+                {netSavings >= 0 ? 'Savings' : 'Deficit'}
+              </Text>
+            </View>
+          </View>
+        </View>
 
-      {/* Add Expense Modal */}
-      <AddExpenseModal
-        visible={showAddExpense}
-        onClose={() => setShowAddExpense(false)}
-        onAddExpense={handleAddExpense}
-      />
+        {/* Budget Progress */}
+        {activeBudgets.length > 0 && (
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Current Budgets</Text>
+              <TouchableOpacity>
+                <Text style={styles.seeAllText}>View All</Text>
+              </TouchableOpacity>
+            </View>
+            {activeBudgets.slice(0, 3).map((budget) => {
+              const progress = (budget.spent_amount / budget.amount) * 100;
+              const progressColor = progress >= 100 ? COLORS.danger : progress >= 80 ? COLORS.warning : COLORS.secondary;
+              
+              return (
+                <View key={budget.id} style={styles.budgetItem}>
+                  <View style={styles.budgetInfo}>
+                    <Text style={styles.budgetName}>Budget Category</Text>
+                    <Text style={styles.budgetAmount}>
+                      ₹{budget.spent_amount.toLocaleString()} / ₹{budget.amount.toLocaleString()}
+                    </Text>
+                  </View>
+                  <View style={styles.progressContainer}>
+                    <View style={styles.progressBackground}>
+                      <View 
+                        style={[
+                          styles.progressFill,
+                          { width: `${Math.min(progress, 100)}%`, backgroundColor: progressColor }
+                        ]} 
+                      />
+                    </View>
+                    <Text style={styles.progressText}>{Math.min(progress, 100).toFixed(0)}%</Text>
+                  </View>
+                </View>
+              );
+            })}
+          </View>
+        )}
 
-      {/* Bottom Navigation */}
-      <BottomNav
-        activeTab={activeTab}
-        onTabChange={setActiveTab}
-        onAddExpense={() => setShowAddExpense(true)}
+        {/* Recent Transactions */}
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Recent Transactions</Text>
+            <TouchableOpacity onPress={() => router.push('/transactions')}>
+              <Text style={styles.seeAllText}>See All</Text>
+            </TouchableOpacity>
+          </View>
+
+          {recentTransactions.length > 0 ? (
+            recentTransactions.map((transaction) => (
+              <View key={transaction.id} style={styles.transactionCard}>
+                <View style={styles.transactionIcon}>
+                  <MaterialCommunityIcons 
+                    name={transaction.type === 'income' ? 'arrow-down' : 'arrow-up'} 
+                    size={20} 
+                    color={transaction.type === 'income' ? COLORS.income : COLORS.expense} 
+                  />
+                </View>
+                <View style={styles.transactionDetails}>
+                  <Text style={styles.transactionDescription} numberOfLines={1}>
+                    {transaction.description}
+                  </Text>
+                  <Text style={styles.transactionMeta}>
+                    {transaction.merchant && `${transaction.merchant} • `}
+                    {new Date(transaction.transaction_date).toLocaleDateString()}
+                  </Text>
+                </View>
+                <Text style={[
+                  styles.transactionAmount,
+                  transaction.type === 'income' ? styles.income : styles.expense
+                ]}>
+                  {transaction.type === 'income' ? '+' : '-'}₹{Math.abs(transaction.amount).toLocaleString()}
+                </Text>
+              </View>
+            ))
+          ) : (
+            <View style={styles.emptyState}>
+              <MaterialCommunityIcons name="receipt" size={48} color={COLORS.textLight} />
+              <Text style={styles.emptyTitle}>No Transactions</Text>
+              <Text style={styles.emptySubtitle}>
+                Start by adding your first transaction
+              </Text>
+              <TouchableOpacity 
+                style={styles.addButton}
+                onPress={() => setShowAddTransaction(true)}
+              >
+                <Text style={styles.addButtonText}>Add Transaction</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </View>
+
+        {/* Bank Accounts Summary */}
+        {bankAccounts.length > 0 && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Bank Accounts</Text>
+            {bankAccounts.map((account) => (
+              <View key={account.id} style={styles.accountCard}>
+                <MaterialCommunityIcons name="bank" size={20} color={COLORS.primary} />
+                <View style={styles.accountInfo}>
+                  <Text style={styles.accountName}>{account.bank_name}</Text>
+                  <Text style={styles.accountNumber}>{account.account_number}</Text>
+                </View>
+                <Text style={styles.accountBalance}>₹{account.current_balance.toLocaleString()}</Text>
+              </View>
+            ))}
+          </View>
+        )}
+      </ScrollView>
+
+      {/* Add Transaction Modal */}
+      <AddTransactionModal
+        visible={showAddTransaction}
+        onClose={() => setShowAddTransaction(false)}
+        onTransactionAdded={handleTransactionAdded}
       />
     </SafeAreaView>
   );
@@ -334,17 +304,46 @@ const styles = StyleSheet.create({
   },
   scroll: {
     flex: 1,
-    paddingBottom: 80,
   },
-  statsContainer: {
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: COLORS.textLight,
+  },
+  quickActions: {
     flexDirection: 'row',
-    paddingHorizontal: 20,
-    marginBottom: 28,
+    padding: 20,
     gap: 12,
   },
+  quickActionButton: {
+    flex: 1,
+    backgroundColor: COLORS.surface,
+    padding: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  quickActionText: {
+    marginTop: 8,
+    fontSize: 12,
+    fontWeight: '600',
+    color: COLORS.text,
+    textAlign: 'center',
+  },
+  dashboardSection: {
+    padding: 20,
+  },
   section: {
-    paddingHorizontal: 20,
-    marginBottom: 24,
+    padding: 20,
   },
   sectionHeader: {
     flexDirection: 'row',
@@ -353,34 +352,196 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   sectionTitle: {
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: '700',
     color: COLORS.text,
   },
-  seeAll: {
+  seeAllText: {
     fontSize: 14,
-    color: '#1e3a8a',
     fontWeight: '600',
+    color: COLORS.primary,
   },
-  emptyText: {
+  dashboardGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+  },
+  dashboardCard: {
+    width: '48%',
+    backgroundColor: COLORS.surface,
+    padding: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
+    marginBottom: 12,
+  },
+  dashboardValue: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: COLORS.text,
+    marginVertical: 8,
+  },
+  dashboardLabel: {
+    fontSize: 12,
+    color: COLORS.textLight,
+  },
+  budgetItem: {
+    backgroundColor: COLORS.surface,
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  budgetInfo: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  budgetName: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: COLORS.text,
+  },
+  budgetAmount: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: COLORS.textLight,
+  },
+  progressContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  progressBackground: {
+    flex: 1,
+    height: 6,
+    backgroundColor: COLORS.border,
+    borderRadius: 3,
+    overflow: 'hidden',
+  },
+  progressFill: {
+    height: '100%',
+    borderRadius: 3,
+  },
+  progressText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: COLORS.textLight,
+    minWidth: 30,
+  },
+  transactionCard: {
+    backgroundColor: COLORS.surface,
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  transactionIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: COLORS.background,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  transactionDetails: {
+    flex: 1,
+  },
+  transactionDescription: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: COLORS.text,
+    marginBottom: 4,
+  },
+  transactionMeta: {
+    fontSize: 12,
+    color: COLORS.textLight,
+  },
+  transactionAmount: {
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  income: {
+    color: COLORS.income,
+  },
+  expense: {
+    color: COLORS.expense,
+  },
+  accountCard: {
+    backgroundColor: COLORS.surface,
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  accountInfo: {
+    flex: 1,
+    marginLeft: 12,
+  },
+  accountName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: COLORS.text,
+    marginBottom: 2,
+  },
+  accountNumber: {
+    fontSize: 12,
+    color: COLORS.textLight,
+  },
+  accountBalance: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: COLORS.text,
+  },
+  emptyState: {
+    alignItems: 'center',
+    paddingVertical: 40,
+    paddingHorizontal: 20,
+  },
+  emptyTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: COLORS.text,
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  emptySubtitle: {
     fontSize: 14,
     color: COLORS.textLight,
     textAlign: 'center',
-    marginVertical: 20,
+    marginBottom: 24,
   },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: COLORS.background,
+  addButton: {
+    backgroundColor: COLORS.primary,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 8,
   },
-  loadingText: {
-    fontSize: 16,
-    color: COLORS.textLight,
-  },
-  centerContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
+  addButtonText: {
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: 14,
   },
 });
