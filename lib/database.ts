@@ -823,74 +823,105 @@ class DatabaseService {
   }
 
 
-  async createTransaction(transaction: Omit<Transaction, 'id' | 'created_at' | 'updated_at'>): Promise<Transaction> {
-    await this.ensureDatabaseReady();
-    
-    const id = this.generateId();
-    const now = new Date().toISOString();
+  // In lib/database.ts - Update createTransaction method
+async createTransaction(transaction: Omit<Transaction, 'id' | 'created_at' | 'updated_at'>): Promise<Transaction> {
+  await this.ensureDatabaseReady();
+  
+  const id = this.generateId();
+  const now = new Date().toISOString();
 
-    try {
-      // Start transaction
-      await this.db!.execAsync('BEGIN TRANSACTION');
+  try {
+    // Start transaction
+    await this.db!.execAsync('BEGIN TRANSACTION');
 
-      // Get current account balance
-      const account = await this.db!.getFirstAsync<BankAccount>(
-        'SELECT * FROM bank_accounts WHERE id = ?',
-        [transaction.bank_account_id]
-      );
+    // Verify bank account exists
+    const account = await this.db!.getFirstAsync<BankAccount>(
+      'SELECT * FROM bank_accounts WHERE id = ?',
+      [transaction.bank_account_id]
+    );
 
-      if (!account) {
-        throw new Error('Bank account not found');
-      }
-
-      // Calculate new balance
-      let newBalance = account.current_balance;
-      if (transaction.type === 'income') {
-        newBalance += transaction.amount;
-      } else if (transaction.type === 'expense') {
-        newBalance -= transaction.amount;
-      }
-      // For transfers, we'll handle separately
-
-      // Insert transaction
-      const params = this.sanitizeParams([
-        id, transaction.bank_account_id, transaction.category_id, transaction.person_id,
-        transaction.transaction_date, transaction.amount, transaction.type, transaction.description,
-        transaction.merchant, transaction.reference_number, newBalance, // Use calculated closing balance
-        transaction.notes, transaction.is_recurring, transaction.recurring_type,
-        transaction.is_investment, transaction.is_verified, now, now
-      ]);
-
-      await this.db!.runAsync(
-        `INSERT INTO transactions 
-         (id, bank_account_id, category_id, person_id, transaction_date, amount, type, description, merchant, reference_number, closing_balance, notes, is_recurring, recurring_type, is_investment, is_verified, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        params
-      );
-
-      // Update bank account balance
-      await this.db!.runAsync(
-        'UPDATE bank_accounts SET current_balance = ?, updated_at = ? WHERE id = ?',
-        [newBalance, now, transaction.bank_account_id]
-      );
-
-      // Commit transaction
-      await this.db!.execAsync('COMMIT');
-
-      return { 
-        ...transaction, 
-        id, 
-        closing_balance: newBalance,
-        created_at: now, 
-        updated_at: now 
-      };
-    } catch (error) {
-      // Rollback on error
-      await this.db!.execAsync('ROLLBACK');
-      console.error('Error creating transaction:', error);
-      throw error;
+    if (!account) {
+      throw new Error(`Bank account not found: ${transaction.bank_account_id}`);
     }
+
+    // Verify person exists
+    const person = await this.db!.getFirstAsync<Person>(
+      'SELECT * FROM persons WHERE id = ?',
+      [transaction.person_id]
+    );
+
+    if (!person) {
+      throw new Error(`Person not found: ${transaction.person_id}`);
+    }
+
+    // Verify category exists (if provided)
+    if (transaction.category_id) {
+      const category = await this.db!.getFirstAsync<Category>(
+        'SELECT * FROM categories WHERE id = ?',
+        [transaction.category_id]
+      );
+
+      if (!category) {
+        throw new Error(`Category not found: ${transaction.category_id}`);
+      }
+    }
+
+    // Calculate new balance
+    let newBalance = account.current_balance;
+    if (transaction.type === 'income') {
+      newBalance += transaction.amount;
+    } else if (transaction.type === 'expense') {
+      newBalance -= Math.abs(transaction.amount); // Ensure positive subtraction
+    }
+
+    // Insert transaction
+    const params = this.sanitizeParams([
+      id, transaction.bank_account_id, transaction.category_id, transaction.person_id,
+      transaction.transaction_date, transaction.amount, transaction.type, transaction.description,
+      transaction.merchant, transaction.reference_number, newBalance,
+      transaction.notes, transaction.is_recurring, transaction.recurring_type,
+      transaction.is_investment, transaction.is_verified, now, now
+    ]);
+
+    await this.db!.runAsync(
+      `INSERT INTO transactions 
+       (id, bank_account_id, category_id, person_id, transaction_date, amount, type, description, merchant, reference_number, closing_balance, notes, is_recurring, recurring_type, is_investment, is_verified, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      params
+    );
+
+    // Update bank account balance
+    await this.db!.runAsync(
+      'UPDATE bank_accounts SET current_balance = ?, updated_at = ? WHERE id = ?',
+      [newBalance, now, transaction.bank_account_id]
+    );
+
+    // Commit transaction
+    await this.db!.execAsync('COMMIT');
+
+    return { 
+      ...transaction, 
+      id, 
+      closing_balance: newBalance,
+      created_at: now, 
+      updated_at: now 
+    };
+  } catch (error) {
+    // Rollback on error
+    await this.db!.execAsync('ROLLBACK');
+    console.error('Error creating transaction:', {
+      error,
+      transactionData: {
+        bank_account_id: transaction.bank_account_id,
+        person_id: transaction.person_id,
+        category_id: transaction.category_id,
+        amount: transaction.amount,
+        type: transaction.type
+      }
+    });
+    throw error;
   }
+}
 
   async deleteTransaction(id: string): Promise<void> {
     await this.ensureDatabaseReady();

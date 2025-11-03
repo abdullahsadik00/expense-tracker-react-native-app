@@ -1,21 +1,38 @@
 // components/ManualSMSImport.tsx
 import React, { useState } from 'react';
-import {
-    Alert,
-    KeyboardAvoidingView,
-    Platform,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View
+import { 
+  View, 
+  Text, 
+  TextInput, 
+  TouchableOpacity, 
+  ScrollView, 
+  StyleSheet, 
+  Alert,
+  KeyboardAvoidingView,
+  Platform 
 } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
 import { SMSListener } from '../lib/smsListener';
 
 export const ManualSMSImport: React.FC = () => {
   const [smsText, setSmsText] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
+
+  // Paste from clipboard
+  const pasteFromClipboard = async () => {
+    try {
+      const text = await Clipboard.getStringAsync();
+      if (text) {
+        setSmsText(text);
+        Alert.alert('Success', 'Text pasted from clipboard!');
+      } else {
+        Alert.alert('No Text', 'No text found in clipboard.');
+      }
+    } catch (error) {
+      console.error('Clipboard error:', error);
+      Alert.alert('Error', 'Failed to read from clipboard.');
+    }
+  };
 
   const processManualSMS = async () => {
     if (!smsText.trim()) {
@@ -60,10 +77,20 @@ export const ManualSMSImport: React.FC = () => {
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
       <ScrollView style={styles.scrollView}>
-        <Text style={styles.title}>📱 Manual SMS Import</Text>
+        <Text style={styles.title}>📱 Bank SMS Import</Text>
         <Text style={styles.subtitle}>
-          Paste your bank transaction SMS below to automatically add it to your expense tracker
+          Paste your bank transaction SMS to automatically add it to your expense tracker
         </Text>
+
+        {/* Quick Actions */}
+        <View style={styles.quickActions}>
+          <TouchableOpacity style={styles.quickButton} onPress={pasteFromClipboard}>
+            <Text style={styles.quickButtonText}>📋 Paste from Clipboard</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.quickButton} onPress={clearText}>
+            <Text style={styles.quickButtonText}>🗑️ Clear</Text>
+          </TouchableOpacity>
+        </View>
 
         {/* Sample SMS Buttons */}
         <Text style={styles.sectionTitle}>Try Sample SMS:</Text>
@@ -86,6 +113,12 @@ export const ManualSMSImport: React.FC = () => {
           >
             <Text style={styles.sampleButtonText}>Income</Text>
           </TouchableOpacity>
+          <TouchableOpacity 
+            style={styles.sampleButton}
+            onPress={() => insertSampleSMS('upi')}
+          >
+            <Text style={styles.sampleButtonText}>UPI Payment</Text>
+          </TouchableOpacity>
         </View>
 
         {/* SMS Input */}
@@ -102,36 +135,40 @@ export const ManualSMSImport: React.FC = () => {
 
         {/* Character Count */}
         <Text style={styles.charCount}>
-          {smsText.length} characters
+          {smsText.length} characters • {smsText.split(' ').length} words
         </Text>
 
-        {/* Action Buttons */}
-        <View style={styles.buttonRow}>
-          <TouchableOpacity 
-            style={[styles.button, styles.clearButton]}
-            onPress={clearText}
-          >
-            <Text style={styles.buttonText}>🗑️ Clear</Text>
-          </TouchableOpacity>
-          
-          <TouchableOpacity 
-            style={[styles.button, styles.processButton, isProcessing && styles.disabledButton]}
-            onPress={processManualSMS}
-            disabled={isProcessing}
-          >
-            <Text style={styles.buttonText}>
-              {isProcessing ? '⏳ Processing...' : '✅ Process SMS'}
-            </Text>
-          </TouchableOpacity>
-        </View>
+        {/* Process Button */}
+        <TouchableOpacity 
+          style={[styles.processButton, isProcessing && styles.disabledButton]}
+          onPress={processManualSMS}
+          disabled={isProcessing}
+        >
+          <Text style={styles.processButtonText}>
+            {isProcessing ? '⏳ Processing Transaction...' : '✅ Process SMS & Add Transaction'}
+          </Text>
+        </TouchableOpacity>
 
         {/* Instructions */}
         <View style={styles.instructions}>
           <Text style={styles.instructionsTitle}>📋 How to Use:</Text>
-          <Text style={styles.instruction}>1. Copy transaction SMS from your bank</Text>
-          <Text style={styles.instruction}>2. Paste it in the text area above</Text>
-          <Text style={styles.instruction}>3. Click "Process SMS" to automatically add the transaction</Text>
-          <Text style={styles.instruction}>4. Supported formats: HDFC, ICICI, SBI, UPI transactions</Text>
+          <Text style={styles.instruction}>1. When you receive a bank SMS, long-press and copy it</Text>
+          <Text style={styles.instruction}>2. Come back to this app and tap "Paste from Clipboard"</Text>
+          <Text style={styles.instruction}>3. Review the text and tap "Process SMS"</Text>
+          <Text style={styles.instruction}>4. The transaction will be automatically added to your expense tracker</Text>
+        </View>
+
+        {/* Supported Formats */}
+        <View style={styles.supported}>
+          <Text style={styles.supportedTitle}>🏦 Supported Banks & Formats:</Text>
+          <Text style={styles.supportedText}>
+            • HDFC Bank: "INR X spent on Merchant"{'\n'}
+            • ICICI Bank: "debited INR X on Date"{'\n'}
+            • SBI: "debited by INR X"{'\n'}
+            • UPI Transactions: "paid to Merchant via UPI"{'\n'}
+            • Income: "received INR X from"{'\n'}
+            • Most other Indian bank formats
+          </Text>
         </View>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -161,6 +198,23 @@ const styles = StyleSheet.create({
     color: '#666',
     lineHeight: 20,
   },
+  quickActions: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 20,
+  },
+  quickButton: {
+    flex: 1,
+    backgroundColor: '#3B82F6',
+    padding: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  quickButtonText: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: '600',
+  },
   sectionTitle: {
     fontSize: 16,
     fontWeight: '600',
@@ -178,8 +232,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 8,
-    marginRight: 8,
-    marginBottom: 8,
   },
   sampleButtonText: {
     fontSize: 12,
@@ -203,28 +255,17 @@ const styles = StyleSheet.create({
     color: '#6B7280',
     marginBottom: 16,
   },
-  buttonRow: {
-    flexDirection: 'row',
-    gap: 12,
-    marginBottom: 20,
-  },
-  button: {
-    flex: 1,
+  processButton: {
+    backgroundColor: '#10B981',
     padding: 16,
     borderRadius: 12,
     alignItems: 'center',
-    justifyContent: 'center',
-  },
-  clearButton: {
-    backgroundColor: '#6B7280',
-  },
-  processButton: {
-    backgroundColor: '#10B981',
+    marginBottom: 20,
   },
   disabledButton: {
     opacity: 0.6,
   },
-  buttonText: {
+  processButtonText: {
     color: 'white',
     fontSize: 16,
     fontWeight: '600',
@@ -245,6 +286,24 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#666',
     marginBottom: 4,
+    lineHeight: 20,
+  },
+  supported: {
+    backgroundColor: '#EFF6FF',
+    padding: 16,
+    borderRadius: 12,
+    borderLeftWidth: 4,
+    borderLeftColor: '#3B82F6',
+  },
+  supportedTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginBottom: 8,
+    color: '#1E40AF',
+  },
+  supportedText: {
+    fontSize: 14,
+    color: '#4B5563',
     lineHeight: 20,
   },
 });

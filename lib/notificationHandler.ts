@@ -1,7 +1,7 @@
 // lib/notificationHandler.ts
 import { Alert, Platform, ToastAndroid } from 'react-native';
+import { BankSpecificParser } from './bankSpecificParser';
 import { db } from './database';
-import { IndianBankParser } from './indianBankParser';
 
 interface TransactionNotification {
   id: string;
@@ -170,16 +170,16 @@ class NotificationHandler {
   }
 
   // Parse transaction from SMS/message content
-  private parseTransactionFromMessage(message: string): TransactionNotification | null {
-    try {
-      this.log('debug', '📝 Parsing transaction from message', { message });
- // First try Indian bank specific parser
-    const bankTransaction = IndianBankParser.parseTransaction(message);
+private parseTransactionFromMessage(message: string): TransactionNotification | null {
+  try {
+    this.log('debug', '📝 Parsing transaction from message', { message });
+
+    const bankTransaction = BankSpecificParser.parseTransaction(message);
     if (bankTransaction) {
-      this.log('info', '🏦 Indian bank transaction parsed', bankTransaction);
+      this.log('info', '🏦 Bank-specific transaction parsed', bankTransaction);
       
       return {
-        id: `sms_${Date.now()}`,
+        id: `bank_${Date.now()}`,
         amount: bankTransaction.amount,
         description: bankTransaction.description,
         date: new Date().toISOString().split('T')[0],
@@ -188,134 +188,189 @@ class NotificationHandler {
         bank: bankTransaction.bank,
       };
     }
-    
-      // Common SMS patterns for different banks
-      const patterns = [
-        // Pattern 1: "INR 500.00 spent on MERCHANT on DATE"
-        /(?:INR|Rs\.?)\s*([\d,]+\.?\d*)\s*(?:spent|debited|paid)\s*(?:on|at|with)\s*([^\.\n]+)/i,
-        
-        // Pattern 2: "Your a/c XX1234 debited by INR 1000.00 on DATE"
-        /debited\s*by\s*(?:INR|Rs\.?)\s*([\d,]+\.?\d*)/i,
-        
-        // Pattern 3: "You have received INR 2000.00 from SENDER"
-        /received\s*(?:INR|Rs\.?)\s*([\d,]+\.?\d*)\s*from/i,
-        
-        // Pattern 4: "Payment of INR 150.00 to MERCHANT"
-        /Payment\s*of\s*(?:INR|Rs\.?)\s*([\d,]+\.?\d*)\s*to/i,
-      ];
 
-      this.log('debug', '🔍 Testing message against patterns', { patternCount: patterns.length });
+    // Enhanced patterns for Indian bank SMS formats
+    const patterns = [
+      // Pattern 1: Bank of Baroda (BOB) - "Rs.10.00 Dr. from A/C XXXXXX6313 and Cr. to paytmqr..."
+      /Rs\.\s*([\d,]+\.\d{2})\s+Dr\.\s+from\s+A\/C\s+\w+\s+and\s+Cr\.\s+to\s+([^\.]+)/i,
+      
+      // Pattern 2: SBI UPI - "Dear UPI user A/C X5986 debited by 47.0 on date 03Nov25 trf to..."
+      /debited\s+by\s+([\d,]+\.\d{1,2})\s+on\s+date\s+(\w+)\s+trf\s+to\s+([^\.]+)/i,
+      
+      // Pattern 3: SBI Alternative - "debited by X.X on date X trf to X"
+      /debited\s+by\s+([\d,]+\.\d{1,2})\s+on\s+date\s+(\w+)\s+trf\s+to\s+([^\.]+)/i,
+      
+      // Pattern 4: Generic debit with amount and merchant
+      /(?:INR|Rs?\.?)\s*([\d,]+\.?\d*)\s*(?:spent|debited|paid|dr\.?)\s*(?:on|at|with|to)\s*([^\.\n]+)/i,
+      
+      // Pattern 5: "debited by INR X" format
+      /debited\s*by\s*(?:INR|Rs?\.?)\s*([\d,]+\.?\d*)/i,
+      
+      // Pattern 6: "received INR X from" format
+      /received\s*(?:INR|Rs?\.?)\s*([\d,]+\.?\d*)\s*from/i,
+      
+      // Pattern 7: "Payment of INR X to" format
+      /Payment\s*of\s*(?:INR|Rs?\.?)\s*([\d,]+\.?\d*)\s*to/i,
 
-      for (const [index, pattern] of patterns.entries()) {
-        const match = message.match(pattern);
-        this.log('debug', `🔍 Pattern ${index + 1} test`, { 
-          pattern: pattern.toString(),
-          match: match 
-        });
-
-        if (match) {
-          const amount = parseFloat(match[1].replace(/,/g, ''));
-          const description = this.extractDescription(message);
-          const type = this.determineTransactionType(message);
-          const merchant = this.extractMerchant(message);
-
-          this.log('info', '✅ Message matched pattern', {
-            patternIndex: index + 1,
-            amount,
-            description,
-            type,
-            merchant
-          });
-
-          return {
-            id: `notif_${Date.now()}`,
-            amount: type === 'expense' ? -Math.abs(amount) : Math.abs(amount),
-            description: description || 'Transaction from notification',
-            date: new Date().toISOString().split('T')[0],
-            type: type,
-            merchant: merchant,
-          };
-        }
-      }
-
-      this.log('warn', '❌ No patterns matched the message');
-      return null;
-    } catch (error) {
-      this.log('error', '💥 Error parsing transaction from message', error);
-      return null;
-    }
-  }
-
-  private extractDescription(message: string): string {
-    this.log('debug', '📄 Extracting description from message', { message });
-    
-    const keywords = ['on', 'at', 'with', 'to', 'from'];
-    for (const keyword of keywords) {
-      const parts = message.split(keyword);
-      if (parts.length > 1) {
-        const description = parts[1].split('.')[0].trim();
-        this.log('debug', `✅ Description extracted with keyword "${keyword}"`, { description });
-        return description;
-      }
-    }
-    
-    const fallback = 'Transaction from notification';
-    this.log('debug', `⚠️ Using fallback description`, { fallback });
-    return fallback;
-  }
-
-  private extractMerchant(message: string): string {
-    this.log('debug', '🏪 Extracting merchant from message', { message });
-    
-    const merchantPatterns = [
-      /(?:on|at|with|to)\s+([A-Za-z0-9\s&]+?)(?:\s+(?:on|at|date|\.|$))/i,
-      /at\s+([A-Za-z0-9\s]+)/i,
+      // Pattern 8: UPI payment format
+      /(?:INR|Rs?\.?)\s*([\d,]+\.?\d*)\s*(?:paid|sent)\s*to\s*([^\.]+)/i,
     ];
-    
-    for (const [index, pattern] of merchantPatterns.entries()) {
+
+    this.log('debug', '🔍 Testing message against patterns', { patternCount: patterns.length });
+
+    for (const [index, pattern] of patterns.entries()) {
       const match = message.match(pattern);
-      this.log('debug', `🔍 Merchant pattern ${index + 1} test`, { 
+      this.log('debug', `🔍 Pattern ${index + 1} test`, { 
         pattern: pattern.toString(),
         match: match 
       });
 
       if (match) {
-        const merchant = match[1].trim();
+        const amount = parseFloat(match[1].replace(/,/g, ''));
+        const description = this.extractDescription(message, match);
+        const type = this.determineTransactionType(message);
+        const merchant = this.extractMerchant(message, match);
+
+        this.log('info', '✅ Message matched pattern', {
+          patternIndex: index + 1,
+          amount,
+          description,
+          type,
+          merchant
+        });
+
+        return {
+          id: `notif_${Date.now()}`,
+          amount: type === 'expense' ? -Math.abs(amount) : Math.abs(amount),
+          description: description || 'Transaction from notification',
+          date: new Date().toISOString().split('T')[0],
+          type: type,
+          merchant: merchant,
+        };
+      }
+    }
+
+    this.log('warn', '❌ No patterns matched the message');
+    return null;
+  } catch (error) {
+    this.log('error', '💥 Error parsing transaction from message', error);
+    return null;
+  }
+}
+
+private extractDescription(message: string, match?: RegExpMatchArray): string {
+  this.log('debug', '📄 Extracting description from message', { message, match });
+  
+  // If we have specific match groups from patterns, use them
+  if (match && match.length > 2) {
+    // For BOB pattern: match[2] contains the recipient
+    if (message.includes('Dr. from A/C') && message.includes('Cr. to')) {
+      const recipient = match[2]?.trim();
+      return `UPI Payment to ${recipient}`;
+    }
+    // For SBI pattern: match[3] contains the recipient name
+    else if (message.includes('debited by') && message.includes('trf to')) {
+      const recipient = match[3]?.trim();
+      return `Transfer to ${recipient}`;
+    }
+  }
+  
+  // Fallback to keyword-based extraction
+  const keywords = ['on', 'at', 'with', 'to', 'from', 'trf to'];
+  for (const keyword of keywords) {
+    const parts = message.split(keyword);
+    if (parts.length > 1) {
+      let description = parts[1].split('.')[0].trim();
+      // Clean up the description
+      description = description.replace(/Refno?\s*\w+/, '').trim();
+      description = description.replace(/If not u\?.*/, '').trim();
+      
+      if (description) {
+        this.log('debug', `✅ Description extracted with keyword "${keyword}"`, { description });
+        return description;
+      }
+    }
+  }
+  
+  const fallback = 'Bank Transaction';
+  this.log('debug', `⚠️ Using fallback description`, { fallback });
+  return fallback;
+}
+
+private extractMerchant(message: string, match?: RegExpMatchArray): string {
+  this.log('debug', '🏪 Extracting merchant from message', { message, match });
+  
+  // Use match groups if available
+  if (match && match.length > 2) {
+    // For BOB: match[2] is the UPI ID or merchant
+    if (message.includes('Cr. to')) {
+      const merchant = match[2]?.trim();
+      if (merchant && !merchant.includes('Ref:')) {
+        return merchant;
+      }
+    }
+    // For SBI: match[3] is the recipient name
+    else if (message.includes('trf to')) {
+      const merchant = match[3]?.trim();
+      if (merchant) {
+        return merchant;
+      }
+    }
+  }
+  
+  // Fallback patterns
+  const merchantPatterns = [
+    /(?:to|trf to|at)\s+([A-Za-z0-9\s\.@]+?)(?:\s+(?:Ref|on|date|\.|$))/i,
+    /at\s+([A-Za-z0-9\s]+)/i,
+    /to\s+([A-Za-z0-9\s]+)/i,
+    /Cr\.\s+to\s+([^\.]+)/i,
+  ];
+  
+  for (const [index, pattern] of merchantPatterns.entries()) {
+    const match = message.match(pattern);
+    if (match) {
+      let merchant = match[1].trim();
+      // Clean up merchant name
+      merchant = merchant.replace(/Refno?\s*\w+/, '').trim();
+      merchant = merchant.replace(/If not u\?.*/, '').trim();
+      
+      if (merchant) {
         this.log('debug', `✅ Merchant extracted with pattern ${index + 1}`, { merchant });
         return merchant;
       }
     }
-    
-    this.log('debug', '⚠️ No merchant found, using empty string');
-    return '';
   }
+  
+  this.log('debug', '⚠️ No merchant found, using empty string');
+  return '';
+}
 
-  private determineTransactionType(message: string): 'income' | 'expense' {
-    this.log('debug', '💰 Determining transaction type from message', { message });
-    
-    const expenseKeywords = ['spent', 'debited', 'paid', 'payment', 'purchase'];
-    const incomeKeywords = ['received', 'credited', 'deposit'];
-    
-    const lowerMessage = message.toLowerCase();
-    
-    for (const keyword of expenseKeywords) {
-      if (lowerMessage.includes(keyword)) {
-        this.log('debug', `✅ Transaction type: expense (keyword: ${keyword})`);
-        return 'expense';
-      }
+private determineTransactionType(message: string): 'income' | 'expense' {
+  this.log('debug', '💰 Determining transaction type from message', { message });
+  
+  const expenseKeywords = ['debited', 'spent', 'paid', 'payment', 'purchase', 'dr.', 'debit', 'charged'];
+  const incomeKeywords = ['credited', 'received', 'deposit', 'cr.', 'credit'];
+  
+  const lowerMessage = message.toLowerCase();
+  
+  for (const keyword of expenseKeywords) {
+    if (lowerMessage.includes(keyword)) {
+      this.log('debug', `✅ Transaction type: expense (keyword: ${keyword})`);
+      return 'expense';
     }
-    
-    for (const keyword of incomeKeywords) {
-      if (lowerMessage.includes(keyword)) {
-        this.log('debug', `✅ Transaction type: income (keyword: ${keyword})`);
-        return 'income';
-      }
-    }
-    
-    // Default to expense for safety
-    this.log('debug', '⚠️ No type keywords found, defaulting to expense');
-    return 'expense';
   }
+  
+  for (const keyword of incomeKeywords) {
+    if (lowerMessage.includes(keyword)) {
+      this.log('debug', `✅ Transaction type: income (keyword: ${keyword})`);
+      return 'income';
+    }
+  }
+  
+  // Default to expense for safety
+  this.log('debug', '⚠️ No type keywords found, defaulting to expense');
+  return 'expense';
+}
 
   private parseTransactionFromURL(url: string): TransactionNotification | null {
     try {
@@ -385,55 +440,66 @@ class NotificationHandler {
   }
 
   // Add transaction to database
-  private async addTransactionFromNotification(transaction: TransactionNotification): Promise<boolean> {
-    try {
-      this.log('debug', '💾 Preparing database transaction', transaction);
-      
-      // Get the first available bank account instead of hardcoded ID
-      const bankAccounts = await db.getBankAccounts();
-      if (!bankAccounts || bankAccounts.length === 0) {
-        this.log('error', '❌ No bank accounts found in database');
-        throw new Error('No bank accounts available. Please add a bank account first.');
-      }
-      
-      // Use the first bank account, or you can implement logic to choose the right one
-      const defaultBankAccount = bankAccounts[0];
-      
-      const dbTransaction = {
-        bank_account_id: defaultBankAccount.id, // Use real bank account ID
-        category_id: this.mapCategory(transaction.category) || '66666666-6666-6666-6666-666666666670',
-        person_id: 'user_1',
-        transaction_date: transaction.date,
-        amount: transaction.amount,
-        type: transaction.type,
-        description: transaction.description,
-        merchant: transaction.merchant || '',
-        is_recurring: false,
-        is_investment: false,
-        is_verified: true,
-        source: 'notification',
-      };
-  
-      this.log('info', '💾 Creating transaction in database', {
-        ...dbTransaction,
-        bank_account_name: defaultBankAccount.bank_name // Log the account name for debugging
-      });
-      
-      await db.createTransaction(dbTransaction);
-      
-      this.log('info', '✅ Transaction successfully added to database', {
-        id: transaction.id,
-        amount: transaction.amount,
-        description: transaction.description,
-        bank_account: defaultBankAccount.bank_name
-      });
-      
-      return true;
-    } catch (error) {
-      this.log('error', '💥 Error adding transaction to database', error);
-      throw error;
+  // In lib/notificationHandler.ts - Update this method
+private async addTransactionFromNotification(transaction: TransactionNotification): Promise<boolean> {
+  try {
+    this.log('debug', '💾 Preparing database transaction', transaction);
+    
+    // Get the first available bank account instead of hardcoded ID
+    const bankAccounts = await db.getBankAccounts();
+    if (!bankAccounts || bankAccounts.length === 0) {
+      this.log('error', '❌ No bank accounts found in database');
+      throw new Error('No bank accounts available. Please add a bank account first.');
     }
+    
+    // Get persons to use a valid person_id
+    const persons = await db.getPersons();
+    if (!persons || persons.length === 0) {
+      this.log('error', '❌ No persons found in database');
+      throw new Error('No persons available in database.');
+    }
+    
+    // Use the first bank account and first person
+    const defaultBankAccount = bankAccounts[0];
+    const defaultPerson = persons[0]; // This will be "Sadik Shaikh"
+    
+    const dbTransaction = {
+      bank_account_id: defaultBankAccount.id,
+      category_id: this.mapCategory(transaction.category) || '66666666-6666-6666-6666-666666666670', // shopping category
+      person_id: defaultPerson.id, // Use valid person ID from database
+      transaction_date: transaction.date,
+      amount: transaction.amount,
+      type: transaction.type,
+      description: transaction.description,
+      merchant: transaction.merchant || '',
+      is_recurring: false,
+      is_investment: false,
+      is_verified: true,
+      source: 'notification',
+    };
+
+    this.log('info', '💾 Creating transaction in database', {
+      ...dbTransaction,
+      bank_account_name: defaultBankAccount.bank_name,
+      person_name: defaultPerson.name
+    });
+    
+    await db.createTransaction(dbTransaction);
+    
+    this.log('info', '✅ Transaction successfully added to database', {
+      id: transaction.id,
+      amount: transaction.amount,
+      description: transaction.description,
+      bank_account: defaultBankAccount.bank_name,
+      person: defaultPerson.name
+    });
+    
+    return true;
+  } catch (error) {
+    this.log('error', '💥 Error adding transaction to database', error);
+    throw error;
   }
+}
   
 
   // Map category names to category IDs
