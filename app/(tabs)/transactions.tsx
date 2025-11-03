@@ -52,6 +52,31 @@ export default function TransactionsScreen() {
   const [endDate, setEndDate] = useState('');
   const [searchText, setSearchText] = useState('');
 
+  const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
+  const [modalVisible, setModalVisible] = useState(false);
+
+  const deleteTransaction = (id: string) => {
+    Alert.alert(
+      'Delete Transaction',
+      'Are you sure you want to delete this transaction?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => {
+            setTransactions(transactions.filter(t => t.id !== id));
+          },
+        },
+      ]
+    );
+  };
+
+  const viewTransactionDetails = (transaction: Transaction) => {
+    setSelectedTransaction(transaction);
+    setModalVisible(true);
+  };
+
   const loadData = async () => {
     try {
       setLoading(true);

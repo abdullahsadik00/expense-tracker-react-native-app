@@ -355,6 +355,7 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: '700',
     color: COLORS.text,
+    marginBottom: 12,
   },
   seeAllText: {
     fontSize: 14,
@@ -377,7 +378,8 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.05,
     shadowRadius: 8,
     elevation: 2,
-    marginBottom: 12,
+    marginBottom: 0,
+    marginLeft:0
   },
   dashboardValue: {
     fontSize: 18,

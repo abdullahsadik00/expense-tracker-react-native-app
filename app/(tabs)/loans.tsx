@@ -1,18 +1,18 @@
+import DatePicker from '@/components/ui/DatePicker';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import React, { useEffect, useState } from 'react';
 import {
-    Alert,
-    RefreshControl,
-    SafeAreaView,
-    ScrollView,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
-    Modal,
-    TextInput,
-    Platform
+  Alert,
+  Modal,
+  RefreshControl,
+  SafeAreaView,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View
 } from 'react-native';
 import Header from '../../components/Header';
 import { db, Loan } from '../../lib/database';
@@ -267,6 +267,12 @@ export default function LoansScreen() {
                           {new Date(loan.due_date).toLocaleDateString()} 
                           {daysRemaining && daysRemaining > 0 && ` (${daysRemaining} days)`}
                         </Text>
+                        <DatePicker
+          date={new Date()}
+          onDateChange={(date) => {}}
+          label="Start Date"
+        />
+
                       </View>
                     )}
                   </View>
@@ -393,22 +399,34 @@ export default function LoansScreen() {
 
               <View style={styles.row}>
                 <View style={styles.halfInput}>
-                  <Text style={styles.inputLabel}>Loan Date</Text>
-                  <TextInput
+                  {/* <Text style={styles.inputLabel}></Text> */}
+                  {/* <TextInput
                     style={styles.textInput}
                     value={formData.loan_date}
                     onChangeText={(value) => handleInputChange('loan_date', value)}
                     placeholder="YYYY-MM-DD"
-                  />
+                  /> */}
+                                          <DatePicker
+          date={new Date()}
+          // onDateChange={(date) => {}}
+          onDateChange={(value) => handleInputChange('loan_date', String(value))}
+          label="Loan Date"
+        />
                 </View>
                 <View style={styles.halfInput}>
-                  <Text style={styles.inputLabel}>Due Date</Text>
+                  {/* <Text style={styles.inputLabel}>Due Date</Text>
                   <TextInput
                     style={styles.textInput}
                     value={formData.due_date}
                     onChangeText={(value) => handleInputChange('due_date', value)}
                     placeholder="YYYY-MM-DD"
-                  />
+                  /> */}
+                                                  <DatePicker
+          date={new Date()}
+          // onDateChange={(date) => {}}
+          onDateChange={(value) => handleInputChange('due_date', String(value))}
+          label="Loan Date"
+        />
                 </View>
               </View>
 

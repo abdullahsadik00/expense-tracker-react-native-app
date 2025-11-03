@@ -22,6 +22,15 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
+        name="transactions"
+        options={{
+          title: 'Transactions',
+          tabBarIcon: ({ color, size }) => (
+            <MaterialCommunityIcons name="swap-horizontal" size={size} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
         name="budgets"
         options={{
           title: 'Budgets',
@@ -31,39 +40,48 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="savings"
-        options={{
-          title: 'Savings',
-          tabBarIcon: ({ color, size }) => (
-            <MaterialCommunityIcons name="piggy-bank" size={size} color={color} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="investments"
-        options={{
-          title: 'Investments',
-          tabBarIcon: ({ color, size }) => (
-            <MaterialCommunityIcons name="trending-up" size={size} color={color} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="loans"
-        options={{
-          title: 'Loans',
-          tabBarIcon: ({ color, size }) => (
-            <MaterialCommunityIcons name="cash" size={size} color={color} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="explore"
+        name="more"
         options={{
           title: 'More',
           tabBarIcon: ({ color, size }) => (
             <MaterialCommunityIcons name="dots-horizontal" size={size} color={color} />
           ),
+        }}
+      />
+       <Tabs.Screen
+        name="savings"
+        options={{
+          href: null, // This hides it from tab bar
+        }}
+      />
+      <Tabs.Screen
+        name="investments"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="loans"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="explore"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="import"
+        options={{
+          href: null,
+        }}
+      />
+       <Tabs.Screen
+        name="notification-tester"
+        options={{
+          href: null,
         }}
       />
     </Tabs>
