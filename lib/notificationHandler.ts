@@ -13,6 +13,7 @@ interface TransactionNotification {
   type: 'income' | 'expense';
   merchant?: string;
   bank?: string;
+  message?: string; // Added optional message property
 }
 
 class NotificationHandler {
@@ -35,9 +36,9 @@ class NotificationHandler {
 
   // Process incoming notification/message
   async processNotification(notificationData: any): Promise<boolean> {
-    this.log('debug', '🔔 Starting notification processing', { 
+    this.log('debug', '🔔 Starting notification processing', {
       notificationData,
-      isProcessing: this.isProcessing 
+      isProcessing: this.isProcessing
     });
 
     // Show test alert for ALL notifications
@@ -51,10 +52,10 @@ class NotificationHandler {
 
     try {
       this.isProcessing = true;
-      
+
       this.log('info', '📋 Extracting transaction data from notification');
       const transaction = this.extractTransactionFromNotification(notificationData);
-      
+
       if (!transaction) {
         this.log('warn', '❌ No transaction data found in notification');
         this.showTestAlert('No Transaction Data', 'Notification received but no transaction data could be extracted');
@@ -67,7 +68,7 @@ class NotificationHandler {
       // Add transaction to database
       this.log('info', '💾 Adding transaction to database');
       const success = await this.addTransactionFromNotification(transaction);
-      
+
       if (success) {
         this.log('info', '🎉 Transaction added successfully');
         this.showSuccessMessage(transaction);
@@ -78,7 +79,7 @@ class NotificationHandler {
         this.showTestAlert('FAILED', 'Failed to add transaction to database');
         return false;
       }
-      
+
     } catch (error) {
       this.log('error', '💥 Error processing notification', error);
       this.showErrorMessage('Failed to add transaction from notification');
@@ -110,7 +111,7 @@ class NotificationHandler {
         this.log('debug', '📊 Direct transaction result', transaction);
         return transaction;
       }
-      
+
       // Format 2: SMS/Text message parsing (common in banking apps)
       if (notificationData.message) {
         this.log('debug', '💬 Processing SMS/message format', {
@@ -121,7 +122,7 @@ class NotificationHandler {
         this.log('debug', '💬 SMS parsing result', transaction);
         return transaction;
       }
-      
+
       // Format 3: Push notification with transaction info
       if (notificationData.amount && notificationData.description) {
         this.log('debug', '📱 Processing push notification format');
@@ -129,7 +130,7 @@ class NotificationHandler {
         this.log('debug', '📱 Push notification result', transaction);
         return transaction;
       }
-      
+
       // Format 4: Deep link URL parameters
       if (notificationData.url) {
         this.log('debug', '🔗 Processing URL/deep link format', { url: notificationData.url });
@@ -155,7 +156,7 @@ class NotificationHandler {
   // Create test transaction for testing
   private createTestTransaction(notificationData: any): TransactionNotification {
     this.log('debug', '🧪 Creating test transaction', notificationData);
-    
+
     const testTransaction: TransactionNotification = {
       id: `test_${Date.now()}`,
       amount: notificationData.amount || -100,
@@ -171,220 +172,220 @@ class NotificationHandler {
   }
 
   // Parse transaction from SMS/message content
-private parseTransactionFromMessage(message: string): TransactionNotification | null {
-  try {
-    this.log('debug', '📝 Parsing transaction from message', { message });
+  private parseTransactionFromMessage(message: string): TransactionNotification | null {
+    try {
+      this.log('debug', '📝 Parsing transaction from message', { message });
 
-    const bankTransaction = BankSpecificParser.parseTransaction(message);
-    if (bankTransaction) {
-      this.log('info', '🏦 Bank-specific transaction parsed', bankTransaction);
-      
-      return {
-        id: `bank_${Date.now()}`,
-        amount: bankTransaction.amount,
-        description: bankTransaction.description,
-        date: new Date().toISOString().split('T')[0],
-        type: bankTransaction.type,
-        merchant: bankTransaction.merchant,
-        bank: bankTransaction.bank,
-      };
-    }
-
-    // Enhanced patterns for Indian bank SMS formats
-    const patterns = [
-      // Pattern 1: Bank of Baroda (BOB) - "Rs.10.00 Dr. from A/C XXXXXX6313 and Cr. to paytmqr..."
-      /Rs\.\s*([\d,]+\.\d{2})\s+Dr\.\s+from\s+A\/C\s+\w+\s+and\s+Cr\.\s+to\s+([^\.]+)/i,
-      
-      // Pattern 2: SBI UPI - "Dear UPI user A/C X5986 debited by 47.0 on date 03Nov25 trf to..."
-      /debited\s+by\s+([\d,]+\.\d{1,2})\s+on\s+date\s+(\w+)\s+trf\s+to\s+([^\.]+)/i,
-      
-      // Pattern 3: SBI Alternative - "debited by X.X on date X trf to X"
-      /debited\s+by\s+([\d,]+\.\d{1,2})\s+on\s+date\s+(\w+)\s+trf\s+to\s+([^\.]+)/i,
-      
-      // Pattern 4: Generic debit with amount and merchant
-      /(?:INR|Rs?\.?)\s*([\d,]+\.?\d*)\s*(?:spent|debited|paid|dr\.?)\s*(?:on|at|with|to)\s*([^\.\n]+)/i,
-      
-      // Pattern 5: "debited by INR X" format
-      /debited\s*by\s*(?:INR|Rs?\.?)\s*([\d,]+\.?\d*)/i,
-      
-      // Pattern 6: "received INR X from" format
-      /received\s*(?:INR|Rs?\.?)\s*([\d,]+\.?\d*)\s*from/i,
-      
-      // Pattern 7: "Payment of INR X to" format
-      /Payment\s*of\s*(?:INR|Rs?\.?)\s*([\d,]+\.?\d*)\s*to/i,
-
-      // Pattern 8: UPI payment format
-      /(?:INR|Rs?\.?)\s*([\d,]+\.?\d*)\s*(?:paid|sent)\s*to\s*([^\.]+)/i,
-    ];
-
-    this.log('debug', '🔍 Testing message against patterns', { patternCount: patterns.length });
-
-    for (const [index, pattern] of patterns.entries()) {
-      const match = message.match(pattern);
-      this.log('debug', `🔍 Pattern ${index + 1} test`, { 
-        pattern: pattern.toString(),
-        match: match 
-      });
-
-      if (match) {
-        const amount = parseFloat(match[1].replace(/,/g, ''));
-        const description = this.extractDescription(message, match);
-        const type = this.determineTransactionType(message);
-        const merchant = this.extractMerchant(message, match);
-
-        this.log('info', '✅ Message matched pattern', {
-          patternIndex: index + 1,
-          amount,
-          description,
-          type,
-          merchant
-        });
+      const bankTransaction = BankSpecificParser.parseTransaction(message);
+      if (bankTransaction) {
+        this.log('info', '🏦 Bank-specific transaction parsed', bankTransaction);
 
         return {
-          id: `notif_${Date.now()}`,
-          amount: type === 'expense' ? -Math.abs(amount) : Math.abs(amount),
-          description: description || 'Transaction from notification',
+          id: `bank_${Date.now()}`,
+          amount: bankTransaction.amount,
+          description: bankTransaction.description,
           date: new Date().toISOString().split('T')[0],
-          type: type,
-          merchant: merchant,
+          type: bankTransaction.type,
+          merchant: bankTransaction.merchant,
+          bank: bankTransaction.bank,
         };
       }
-    }
 
-    this.log('warn', '❌ No patterns matched the message');
-    return null;
-  } catch (error) {
-    this.log('error', '💥 Error parsing transaction from message', error);
-    return null;
-  }
-}
+      // Enhanced patterns for Indian bank SMS formats
+      const patterns = [
+        // Pattern 1: Bank of Baroda (BOB) - "Rs.10.00 Dr. from A/C XXXXXX6313 and Cr. to paytmqr..."
+        /Rs\.\s*([\d,]+\.\d{2})\s+Dr\.\s+from\s+A\/C\s+\w+\s+and\s+Cr\.\s+to\s+([^\.]+)/i,
 
-private extractDescription(message: string, match?: RegExpMatchArray): string {
-  this.log('debug', '📄 Extracting description from message', { message, match });
-  
-  // If we have specific match groups from patterns, use them
-  if (match && match.length > 2) {
-    // For BOB pattern: match[2] contains the recipient
-    if (message.includes('Dr. from A/C') && message.includes('Cr. to')) {
-      const recipient = match[2]?.trim();
-      return `UPI Payment to ${recipient}`;
-    }
-    // For SBI pattern: match[3] contains the recipient name
-    else if (message.includes('debited by') && message.includes('trf to')) {
-      const recipient = match[3]?.trim();
-      return `Transfer to ${recipient}`;
+        // Pattern 2: SBI UPI - "Dear UPI user A/C X5986 debited by 47.0 on date 03Nov25 trf to..."
+        /debited\s+by\s+([\d,]+\.\d{1,2})\s+on\s+date\s+(\w+)\s+trf\s+to\s+([^\.]+)/i,
+
+        // Pattern 3: SBI Alternative - "debited by X.X on date X trf to X"
+        /debited\s+by\s+([\d,]+\.\d{1,2})\s+on\s+date\s+(\w+)\s+trf\s+to\s+([^\.]+)/i,
+
+        // Pattern 4: Generic debit with amount and merchant
+        /(?:INR|Rs?\.?)\s*([\d,]+\.?\d*)\s*(?:spent|debited|paid|dr\.?)\s*(?:on|at|with|to)\s*([^\.\n]+)/i,
+
+        // Pattern 5: "debited by INR X" format
+        /debited\s*by\s*(?:INR|Rs?\.?)\s*([\d,]+\.?\d*)/i,
+
+        // Pattern 6: "received INR X from" format
+        /received\s*(?:INR|Rs?\.?)\s*([\d,]+\.?\d*)\s*from/i,
+
+        // Pattern 7: "Payment of INR X to" format
+        /Payment\s*of\s*(?:INR|Rs?\.?)\s*([\d,]+\.?\d*)\s*to/i,
+
+        // Pattern 8: UPI payment format
+        /(?:INR|Rs?\.?)\s*([\d,]+\.?\d*)\s*(?:paid|sent)\s*to\s*([^\.]+)/i,
+      ];
+
+      this.log('debug', '🔍 Testing message against patterns', { patternCount: patterns.length });
+
+      for (const [index, pattern] of patterns.entries()) {
+        const match = message.match(pattern);
+        this.log('debug', `🔍 Pattern ${index + 1} test`, {
+          pattern: pattern.toString(),
+          match: match
+        });
+
+        if (match) {
+          const amount = parseFloat(match[1].replace(/,/g, ''));
+          const description = this.extractDescription(message, match);
+          const type = this.determineTransactionType(message);
+          const merchant = this.extractMerchant(message, match);
+
+          this.log('info', '✅ Message matched pattern', {
+            patternIndex: index + 1,
+            amount,
+            description,
+            type,
+            merchant
+          });
+
+          return {
+            id: `notif_${Date.now()}`,
+            amount: type === 'expense' ? -Math.abs(amount) : Math.abs(amount),
+            description: description || 'Transaction from notification',
+            date: new Date().toISOString().split('T')[0],
+            type: type,
+            merchant: merchant,
+          };
+        }
+      }
+
+      this.log('warn', '❌ No patterns matched the message');
+      return null;
+    } catch (error) {
+      this.log('error', '💥 Error parsing transaction from message', error);
+      return null;
     }
   }
-  
-  // Fallback to keyword-based extraction
-  const keywords = ['on', 'at', 'with', 'to', 'from', 'trf to'];
-  for (const keyword of keywords) {
-    const parts = message.split(keyword);
-    if (parts.length > 1) {
-      let description = parts[1].split('.')[0].trim();
-      // Clean up the description
-      description = description.replace(/Refno?\s*\w+/, '').trim();
-      description = description.replace(/If not u\?.*/, '').trim();
-      
-      if (description) {
-        this.log('debug', `✅ Description extracted with keyword "${keyword}"`, { description });
-        return description;
+
+  private extractDescription(message: string, match?: RegExpMatchArray): string {
+    this.log('debug', '📄 Extracting description from message', { message, match });
+
+    // If we have specific match groups from patterns, use them
+    if (match && match.length > 2) {
+      // For BOB pattern: match[2] contains the recipient
+      if (message.includes('Dr. from A/C') && message.includes('Cr. to')) {
+        const recipient = match[2]?.trim();
+        return `UPI Payment to ${recipient}`;
+      }
+      // For SBI pattern: match[3] contains the recipient name
+      else if (message.includes('debited by') && message.includes('trf to')) {
+        const recipient = match[3]?.trim();
+        return `Transfer to ${recipient}`;
       }
     }
-  }
-  
-  const fallback = 'Bank Transaction';
-  this.log('debug', `⚠️ Using fallback description`, { fallback });
-  return fallback;
-}
 
-private extractMerchant(message: string, match?: RegExpMatchArray): string {
-  this.log('debug', '🏪 Extracting merchant from message', { message, match });
-  
-  // Use match groups if available
-  if (match && match.length > 2) {
-    // For BOB: match[2] is the UPI ID or merchant
-    if (message.includes('Cr. to')) {
-      const merchant = match[2]?.trim();
-      if (merchant && !merchant.includes('Ref:')) {
-        return merchant;
-      }
-    }
-    // For SBI: match[3] is the recipient name
-    else if (message.includes('trf to')) {
-      const merchant = match[3]?.trim();
-      if (merchant) {
-        return merchant;
-      }
-    }
-  }
-  
-  // Fallback patterns
-  const merchantPatterns = [
-    /(?:to|trf to|at)\s+([A-Za-z0-9\s\.@]+?)(?:\s+(?:Ref|on|date|\.|$))/i,
-    /at\s+([A-Za-z0-9\s]+)/i,
-    /to\s+([A-Za-z0-9\s]+)/i,
-    /Cr\.\s+to\s+([^\.]+)/i,
-  ];
-  
-  for (const [index, pattern] of merchantPatterns.entries()) {
-    const match = message.match(pattern);
-    if (match) {
-      let merchant = match[1].trim();
-      // Clean up merchant name
-      merchant = merchant.replace(/Refno?\s*\w+/, '').trim();
-      merchant = merchant.replace(/If not u\?.*/, '').trim();
-      
-      if (merchant) {
-        this.log('debug', `✅ Merchant extracted with pattern ${index + 1}`, { merchant });
-        return merchant;
-      }
-    }
-  }
-  
-  this.log('debug', '⚠️ No merchant found, using empty string');
-  return '';
-}
+    // Fallback to keyword-based extraction
+    const keywords = ['on', 'at', 'with', 'to', 'from', 'trf to'];
+    for (const keyword of keywords) {
+      const parts = message.split(keyword);
+      if (parts.length > 1) {
+        let description = parts[1].split('.')[0].trim();
+        // Clean up the description
+        description = description.replace(/Refno?\s*\w+/, '').trim();
+        description = description.replace(/If not u\?.*/, '').trim();
 
-private determineTransactionType(message: string): 'income' | 'expense' {
-  this.log('debug', '💰 Determining transaction type from message', { message });
-  
-  const expenseKeywords = ['debited', 'spent', 'paid', 'payment', 'purchase', 'dr.', 'debit', 'charged'];
-  const incomeKeywords = ['credited', 'received', 'deposit', 'cr.', 'credit'];
-  
-  const lowerMessage = message.toLowerCase();
-  
-  for (const keyword of expenseKeywords) {
-    if (lowerMessage.includes(keyword)) {
-      this.log('debug', `✅ Transaction type: expense (keyword: ${keyword})`);
-      return 'expense';
+        if (description) {
+          this.log('debug', `✅ Description extracted with keyword "${keyword}"`, { description });
+          return description;
+        }
+      }
     }
+
+    const fallback = 'Bank Transaction';
+    this.log('debug', `⚠️ Using fallback description`, { fallback });
+    return fallback;
   }
-  
-  for (const keyword of incomeKeywords) {
-    if (lowerMessage.includes(keyword)) {
-      this.log('debug', `✅ Transaction type: income (keyword: ${keyword})`);
-      return 'income';
+
+  private extractMerchant(message: string, match?: RegExpMatchArray): string {
+    this.log('debug', '🏪 Extracting merchant from message', { message, match });
+
+    // Use match groups if available
+    if (match && match.length > 2) {
+      // For BOB: match[2] is the UPI ID or merchant
+      if (message.includes('Cr. to')) {
+        const merchant = match[2]?.trim();
+        if (merchant && !merchant.includes('Ref:')) {
+          return merchant;
+        }
+      }
+      // For SBI: match[3] is the recipient name
+      else if (message.includes('trf to')) {
+        const merchant = match[3]?.trim();
+        if (merchant) {
+          return merchant;
+        }
+      }
     }
+
+    // Fallback patterns
+    const merchantPatterns = [
+      /(?:to|trf to|at)\s+([A-Za-z0-9\s\.@]+?)(?:\s+(?:Ref|on|date|\.|$))/i,
+      /at\s+([A-Za-z0-9\s]+)/i,
+      /to\s+([A-Za-z0-9\s]+)/i,
+      /Cr\.\s+to\s+([^\.]+)/i,
+    ];
+
+    for (const [index, pattern] of merchantPatterns.entries()) {
+      const match = message.match(pattern);
+      if (match) {
+        let merchant = match[1].trim();
+        // Clean up merchant name
+        merchant = merchant.replace(/Refno?\s*\w+/, '').trim();
+        merchant = merchant.replace(/If not u\?.*/, '').trim();
+
+        if (merchant) {
+          this.log('debug', `✅ Merchant extracted with pattern ${index + 1}`, { merchant });
+          return merchant;
+        }
+      }
+    }
+
+    this.log('debug', '⚠️ No merchant found, using empty string');
+    return '';
   }
-  
-  // Default to expense for safety
-  this.log('debug', '⚠️ No type keywords found, defaulting to expense');
-  return 'expense';
-}
+
+  private determineTransactionType(message: string): 'income' | 'expense' {
+    this.log('debug', '💰 Determining transaction type from message', { message });
+
+    const expenseKeywords = ['debited', 'spent', 'paid', 'payment', 'purchase', 'dr.', 'debit', 'charged'];
+    const incomeKeywords = ['credited', 'received', 'deposit', 'cr.', 'credit'];
+
+    const lowerMessage = message.toLowerCase();
+
+    for (const keyword of expenseKeywords) {
+      if (lowerMessage.includes(keyword)) {
+        this.log('debug', `✅ Transaction type: expense (keyword: ${keyword})`);
+        return 'expense';
+      }
+    }
+
+    for (const keyword of incomeKeywords) {
+      if (lowerMessage.includes(keyword)) {
+        this.log('debug', `✅ Transaction type: income (keyword: ${keyword})`);
+        return 'income';
+      }
+    }
+
+    // Default to expense for safety
+    this.log('debug', '⚠️ No type keywords found, defaulting to expense');
+    return 'expense';
+  }
 
   private parseTransactionFromURL(url: string): TransactionNotification | null {
     try {
       this.log('debug', '🔗 Parsing transaction from URL', { url });
-      
+
       const urlObj = new URL(url);
       const params = new URLSearchParams(urlObj.search);
-      
+
       const amount = params.get('amount');
       const description = params.get('description');
       const type = params.get('type') as 'income' | 'expense';
       const merchant = params.get('merchant');
-      
+
       this.log('debug', '🔗 URL parameters extracted', {
         amount, description, type, merchant
       });
@@ -402,7 +403,7 @@ private determineTransactionType(message: string): 'income' | 'expense' {
         this.log('info', '✅ Transaction parsed from URL', transaction);
         return transaction;
       }
-      
+
       this.log('warn', '❌ Missing required parameters in URL');
       return null;
     } catch (error) {
@@ -413,7 +414,7 @@ private determineTransactionType(message: string): 'income' | 'expense' {
 
   private validateTransaction(transaction: any): TransactionNotification | null {
     this.log('debug', '✅ Validating transaction data', transaction);
-    
+
     // Basic validation
     if (!transaction.amount || !transaction.description) {
       this.log('warn', '❌ Transaction validation failed: missing amount or description', {
@@ -425,8 +426,8 @@ private determineTransactionType(message: string): 'income' | 'expense' {
 
     const validatedTransaction = {
       id: transaction.id || `auto_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-      amount: typeof transaction.amount === 'number' 
-        ? transaction.amount 
+      amount: typeof transaction.amount === 'number'
+        ? transaction.amount
         : parseFloat(transaction.amount),
       description: transaction.description,
       category: transaction.category,
@@ -444,121 +445,120 @@ private determineTransactionType(message: string): 'income' | 'expense' {
   private async addTransactionFromNotification(transaction: TransactionNotification): Promise<boolean> {
     try {
       this.log('debug', '💾 Preparing database transaction', transaction);
-      
-      // Get the first available bank account instead of hardcoded ID
+
+      // Get all bank accounts
       const bankAccounts = await db.getBankAccounts();
       if (!bankAccounts || bankAccounts.length === 0) {
         this.log('error', '❌ No bank accounts found in database');
         throw new Error('No bank accounts available. Please add a bank account first.');
       }
-      
+
       // Get persons to use a valid person_id
       const persons = await db.getPersons();
       if (!persons || persons.length === 0) {
         this.log('error', '❌ No persons found in database');
         throw new Error('No persons available in database.');
       }
-      
-      // Use the first bank account
-      const defaultBankAccount = bankAccounts[0];
-      
-      // Smart category mapping
-      const categoryMapping = SmartCategoryMapper.mapTransaction(
+
+      // Smart category mapping with bank detection
+      const transactionMessage = transaction.message || '';
+      const smartMapping = SmartCategoryMapper.mapTransactionWithBank(
         transaction.description,
         transaction.merchant || '',
         Math.abs(transaction.amount),
-        transaction.type
+        transaction.type,
+        transactionMessage,
+        bankAccounts
       );
-      
-      // Find appropriate person based on person_type
-      // Enhanced person finding in addTransactionFromNotification
-const findPersonByType = (persons: Person[], personType: string): Person => {
-  const defaultPerson = persons[0];
-  
-  switch (personType) {
-    case 'user':
-      // Find Sadik
-      const sadik = persons.find(p => p.name.toLowerCase().includes('sadik'));
-      return sadik || defaultPerson;
-      
-    case 'dad_business':
-      // Find Dad
-      const dad = persons.find(p => p.name.toLowerCase().includes('dad') || p.role === 'business_owner');
-      return dad || defaultPerson;
-      
-    case 'mom':
-      // Find Mom
-      const mom = persons.find(p => p.name.toLowerCase().includes('mom'));
-      return mom || defaultPerson;
-      
-    case 'shared':
-      // Use default (Sadik) for shared expenses
-      return defaultPerson;
-      
-    default:
-      return defaultPerson;
-  }
-};
 
-// Then use it:
-let defaultPerson = findPersonByType(persons, categoryMapping.person_type || 'user');
-      
-      if (categoryMapping.person_type) {
-        const matchedPerson = persons.find(person => {
-          // Map person_type to role
-          if (categoryMapping.person_type === 'user') return person.role === 'family_member';
-          if (categoryMapping.person_type === 'dad_business') return person.name.toLowerCase().includes('dad');
-          if (categoryMapping.person_type === 'mom') return person.name.toLowerCase().includes('mom');
-          if (categoryMapping.person_type === 'shared') return person.role === 'family_member';
-          return false;
-        });
-        
-        if (matchedPerson) {
-          defaultPerson = matchedPerson;
+      // Use detected bank account or fallback to first account
+      let selectedBankAccount = bankAccounts[0]; // Default to first account
+
+      if (smartMapping.bank_account_id) {
+        const detectedAccount = bankAccounts.find(account => account.id === smartMapping.bank_account_id);
+        if (detectedAccount) {
+          selectedBankAccount = detectedAccount;
+          this.log('info', '🏦 Bank account detected from SMS', {
+            bank_name: detectedAccount.bank_name,
+            account_number: detectedAccount.account_number
+          });
         }
       }
-  
+
+      // Find appropriate person based on person_type
+      const findPersonByType = (persons: Person[], personType: string): Person => {
+        const defaultPerson = persons[0];
+
+        switch (personType) {
+          case 'user':
+            // Find Sadik
+            const sadik = persons.find(p => p.name.toLowerCase().includes('sadik'));
+            return sadik || defaultPerson;
+
+          case 'dad_business':
+            // Find Dad
+            const dad = persons.find(p => p.name.toLowerCase().includes('dad') || p.role === 'business_owner');
+            return dad || defaultPerson;
+
+          case 'mom':
+            // Find Mom
+            const mom = persons.find(p => p.name.toLowerCase().includes('mom'));
+            return mom || defaultPerson;
+
+          case 'shared':
+            // Use default (Sadik) for shared expenses
+            return defaultPerson;
+
+          default:
+            return defaultPerson;
+        }
+      };
+
+      const selectedPerson = findPersonByType(persons, smartMapping.mapping.person_type || 'user');
+
       const dbTransaction = {
-        bank_account_id: defaultBankAccount.id,
-        category_id: categoryMapping.category_id,
-        person_id: defaultPerson.id,
+        bank_account_id: selectedBankAccount.id,
+        category_id: smartMapping.mapping.category_id,
+        person_id: selectedPerson.id,
         transaction_date: transaction.date,
         amount: transaction.amount,
         type: transaction.type,
-        description: categoryMapping.description,
+        description: smartMapping.mapping.description,
         merchant: transaction.merchant || '',
         is_recurring: false,
         is_investment: false,
         is_verified: true,
         source: 'notification',
       };
-  
+
       this.log('info', '💾 Creating transaction in database', {
         ...dbTransaction,
-        bank_account_name: defaultBankAccount.bank_name,
-        person_name: defaultPerson.name,
-        smart_category: categoryMapping
+        bank_account_name: selectedBankAccount.bank_name,
+        person_name: selectedPerson.name,
+        smart_category: smartMapping.mapping,
+        bank_detected: smartMapping.bank_account_id ? 'YES' : 'NO'
       });
-      
+
       await db.createTransaction(dbTransaction);
-      
+
       this.log('info', '✅ Transaction successfully added to database', {
         id: transaction.id,
         amount: transaction.amount,
-        description: categoryMapping.description,
-        category: categoryMapping.category_id,
-        bank_account: defaultBankAccount.bank_name,
-        person: defaultPerson.name
+        description: smartMapping.mapping.description,
+        category: smartMapping.mapping.category_id,
+        bank_account: selectedBankAccount.bank_name,
+        person: selectedPerson.name
       });
-      
+
       return true;
     } catch (error) {
       this.log('error', '💥 Error adding transaction to database', error);
       throw error;
     }
   }
-  
-  
+
+
+
 
   // Map category names to category IDs
   private mapCategory(categoryName?: string): string {
@@ -566,7 +566,7 @@ let defaultPerson = findPersonByType(persons, categoryMapping.person_type || 'us
       this.log('debug', '📂 No category provided, using default');
       return '';
     }
-    
+
     const categoryMap: { [key: string]: string } = {
       'food': '66666666-6666-6666-6666-666666666669',
       'dining': '66666666-6666-6666-6666-666666666669',
@@ -587,7 +587,7 @@ let defaultPerson = findPersonByType(persons, categoryMapping.person_type || 'us
       input: categoryName,
       output: categoryId || 'NOT FOUND (using default)'
     });
-    
+
     return categoryId;
   }
 
@@ -596,7 +596,7 @@ let defaultPerson = findPersonByType(persons, categoryMapping.person_type || 'us
     const amount = Math.abs(transaction.amount);
     const type = transaction.type === 'income' ? 'Income' : 'Expense';
     const message = `${type} of $${amount.toFixed(2)} added successfully!`;
-    
+
     this.log('info', '🎉 Showing success message', { message });
 
     if (Platform.OS === 'android') {
@@ -604,7 +604,7 @@ let defaultPerson = findPersonByType(persons, categoryMapping.person_type || 'us
     } else {
       Alert.alert('Transaction Added', message, [{ text: 'OK' }]);
     }
-    
+
     this.triggerCustomToast(message, 'success');
   }
 
@@ -616,14 +616,14 @@ let defaultPerson = findPersonByType(persons, categoryMapping.person_type || 'us
     } else {
       Alert.alert('Error', errorMessage, [{ text: 'OK' }]);
     }
-    
+
     this.triggerCustomToast(errorMessage, 'error');
   }
 
   // Test alert for debugging
   private showTestAlert(title: string, message: string) {
     this.log('debug', '🧪 Showing test alert', { title, message });
-    
+
     if (Platform.OS !== 'web') {
       Alert.alert(
         `🧪 ${title}`,
@@ -652,7 +652,7 @@ let defaultPerson = findPersonByType(persons, categoryMapping.person_type || 'us
   // Public method to test the notification handler
   async testNotificationHandler(testData: any = null) {
     this.log('info', '🧪 Starting manual test of notification handler');
-    
+
     const testNotification = testData || {
       test: true,
       message: 'INR 500.00 spent on Starbucks Coffee on 2024-01-15. Your current balance is INR 15,000.00',

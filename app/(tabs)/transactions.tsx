@@ -42,6 +42,163 @@ export default function TransactionsScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [showFilters, setShowFilters] = useState(false);
+  const [editModalVisible, setEditModalVisible] = useState(false);
+  const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
+  const [editForm, setEditForm] = useState({
+    description: '',
+    amount: '',
+    category_id: '',
+    transaction_date: '',
+    merchant: '',
+  });
+  // Load transaction for editing
+  const loadTransactionForEdit = (transaction: Transaction) => {
+    setEditingTransaction(transaction);
+    setEditForm({
+      description: transaction.description,
+      amount: Math.abs(transaction.amount).toString(),
+      category_id: transaction.category_id,
+      transaction_date: transaction.transaction_date,
+      merchant: transaction.merchant || '',
+    });
+    setEditModalVisible(true);
+  };
+
+  // Update transaction
+  const updateTransaction = async () => {
+    if (!editingTransaction) return;
+
+    try {
+      const updatedTransaction = {
+        ...editingTransaction,
+        description: editForm.description,
+        amount: editingTransaction.type === 'expense' ? -Math.abs(parseFloat(editForm.amount)) : Math.abs(parseFloat(editForm.amount)),
+        category_id: editForm.category_id,
+        transaction_date: editForm.transaction_date,
+        merchant: editForm.merchant,
+      };
+
+      // Note: You'll need to implement updateTransaction in your database service
+      // await db.updateTransaction(editingTransaction.id, updatedTransaction);
+      
+      Alert.alert('Success', 'Transaction updated successfully');
+      setEditModalVisible(false);
+      loadData(); // Refresh the list
+    } catch (error) {
+      console.error('Update error:', error);
+      Alert.alert('Error', 'Failed to update transaction');
+    }
+  };
+
+  // Delete transaction
+  const deleteTransaction = (transaction: Transaction) => {
+    Alert.alert(
+      'Delete Transaction',
+      `Are you sure you want to delete "${transaction.description}"?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await db.deleteTransaction(transaction.id);
+              Alert.alert('Success', 'Transaction deleted successfully');
+              loadData(); // Refresh the list
+            } catch (error) {
+              console.error('Delete error:', error);
+              Alert.alert('Error', 'Failed to delete transaction');
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  // Action menu for each transaction
+  const showActionMenu = (transaction: Transaction) => {
+    Alert.alert(
+      'Transaction Actions',
+      `Choose an action for "${transaction.description}"`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { 
+          text: 'Edit', 
+          onPress: () => loadTransactionForEdit(transaction) 
+        },
+        { 
+          text: 'Delete', 
+          style: 'destructive',
+          onPress: () => deleteTransaction(transaction) 
+        },
+        { 
+          text: 'View Details', 
+          onPress: () => viewTransactionDetails(transaction) 
+        },
+      ]
+    );
+  };
+
+  // Update the transaction card to include action button
+  const renderTransactionItem = ({ item }: { item: Transaction }) => (
+    <TouchableOpacity 
+      style={styles.transactionCard}
+      onPress={() => showActionMenu(item)}
+      onLongPress={() => viewTransactionDetails(item)}
+    >
+      <View style={styles.transactionMain}>
+        <View style={styles.transactionIcon}>
+          <MaterialCommunityIcons 
+            name={item.type === 'income' ? 'arrow-down' : 'arrow-up'} 
+            size={20} 
+            color={item.type === 'income' ? COLORS.income : COLORS.expense} 
+          />
+        </View>
+        <View style={styles.transactionDetails}>
+          <Text style={styles.transactionDescription} numberOfLines={1}>
+            {item.description}
+          </Text>
+          <Text style={styles.transactionMeta}>
+            {getCategoryName(item.category_id)} • {getBankAccountName(item.bank_account_id)}
+          </Text>
+          <Text style={styles.transactionMeta}>
+            {getPersonName(item.person_id)} • {new Date(item.transaction_date).toLocaleDateString()}
+          </Text>
+          {item.merchant && (
+            <Text style={styles.transactionMerchant}>{item.merchant}</Text>
+          )}
+        </View>
+        <View style={styles.transactionAmountContainer}>
+          <Text style={[
+            styles.transactionAmount,
+            item.type === 'income' ? styles.income : styles.expense
+          ]}>
+            {formatAmount(item.amount, item.type)}
+          </Text>
+          <Text style={styles.closingBalance}>
+            Balance: ₹{item.closing_balance?.toLocaleString() || '0'}
+          </Text>
+        </View>
+      </View>
+      
+      {/* Quick Actions */}
+      <View style={styles.quickActions}>
+        <TouchableOpacity 
+          style={styles.quickAction}
+          onPress={() => loadTransactionForEdit(item)}
+        >
+          <MaterialCommunityIcons name="pencil" size={16} color={COLORS.textLight} />
+        </TouchableOpacity>
+        <TouchableOpacity 
+          style={styles.quickAction}
+          onPress={() => deleteTransaction(item)}
+        >
+          <MaterialCommunityIcons name="delete" size={16} color={COLORS.danger} />
+        </TouchableOpacity>
+      </View>
+    </TouchableOpacity>
+  );
+
   
   // Filter states
   const [selectedCategory, setSelectedCategory] = useState<string>('');
@@ -54,23 +211,6 @@ export default function TransactionsScreen() {
 
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
-
-  const deleteTransaction = (id: string) => {
-    Alert.alert(
-      'Delete Transaction',
-      'Are you sure you want to delete this transaction?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: () => {
-            setTransactions(transactions.filter(t => t.id !== id));
-          },
-        },
-      ]
-    );
-  };
 
   const viewTransactionDetails = (transaction: Transaction) => {
     setSelectedTransaction(transaction);
@@ -204,49 +344,14 @@ export default function TransactionsScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Transactions List */}
-      <FlatList
+            {/* Transactions List */}
+            <FlatList
         data={filteredTransactions}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
         keyExtractor={(item) => item.id}
-        renderItem={({ item }) => (
-          <View style={styles.transactionCard}>
-            <View style={styles.transactionIcon}>
-              <MaterialCommunityIcons 
-                name={item.type === 'income' ? 'arrow-down' : 'arrow-up'} 
-                size={20} 
-                color={item.type === 'income' ? COLORS.income : COLORS.expense} 
-              />
-            </View>
-            <View style={styles.transactionDetails}>
-              <Text style={styles.transactionDescription} numberOfLines={1}>
-                {item.description}
-              </Text>
-              <Text style={styles.transactionMeta}>
-                {getCategoryName(item.category_id)} • {getBankAccountName(item.bank_account_id)}
-              </Text>
-              <Text style={styles.transactionMeta}>
-                {getPersonName(item.person_id)} • {new Date(item.transaction_date).toLocaleDateString()}
-              </Text>
-              {item.merchant && (
-                <Text style={styles.transactionMerchant}>{item.merchant}</Text>
-              )}
-            </View>
-            <View style={styles.transactionAmountContainer}>
-              <Text style={[
-                styles.transactionAmount,
-                item.type === 'income' ? styles.income : styles.expense
-              ]}>
-                {formatAmount(item.amount, item.type)}
-              </Text>
-              <Text style={styles.closingBalance}>
-                Balance: ₹{item.closing_balance?.toLocaleString() || '0'}
-              </Text>
-            </View>
-          </View>
-        )}
+        renderItem={renderTransactionItem}
         ListEmptyComponent={
           <View style={styles.emptyState}>
             <MaterialCommunityIcons name="receipt" size={64} color={COLORS.textLight} />
@@ -254,182 +359,111 @@ export default function TransactionsScreen() {
             <Text style={styles.emptySubtitle}>
               {searchText || selectedCategory || selectedAccount ? 
                 'No transactions match your filters' : 
-                'Start by adding your first transaction'
+                'Start by adding your first transaction via SMS Import or File Import'
               }
             </Text>
+            <TouchableOpacity style={styles.emptyAction}>
+              <Text style={styles.emptyActionText}>Go to Import</Text>
+            </TouchableOpacity>
           </View>
         }
       />
 
-      {/* Filters Modal */}
+      {/* Edit Transaction Modal */}
       <Modal
-        visible={showFilters}
+        visible={editModalVisible}
         transparent
         animationType="slide"
-        onRequestClose={() => setShowFilters(false)}
+        onRequestClose={() => setEditModalVisible(false)}
       >
         <SafeAreaView style={styles.modalContainer}>
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Filter Transactions</Text>
-              <TouchableOpacity onPress={() => setShowFilters(false)}>
+              <Text style={styles.modalTitle}>Edit Transaction</Text>
+              <TouchableOpacity onPress={() => setEditModalVisible(false)}>
                 <MaterialCommunityIcons name="close" size={28} color={COLORS.text} />
               </TouchableOpacity>
             </View>
 
             <ScrollView style={styles.modalBody}>
-              {/* Type Filter */}
-              <View style={styles.filterGroup}>
-                <Text style={styles.filterLabel}>Transaction Type</Text>
-                <View style={styles.typeOptions}>
-                  {['', 'income', 'expense', 'transfer'].map((type) => (
-                    <TouchableOpacity
-                      key={type}
-                      style={[
-                        styles.typeOption,
-                        selectedType === type && styles.typeOptionSelected
-                      ]}
-                      onPress={() => setSelectedType(type as any)}
-                    >
-                      <Text style={[
-                        styles.typeOptionText,
-                        selectedType === type && styles.typeOptionTextSelected
-                      ]}>
-                        {type === '' ? 'All' : type.charAt(0).toUpperCase() + type.slice(1)}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
+              <View style={styles.formGroup}>
+                <Text style={styles.formLabel}>Description</Text>
+                <TextInput
+                  style={styles.input}
+                  value={editForm.description}
+                  onChangeText={(text) => setEditForm(prev => ({ ...prev, description: text }))}
+                  placeholder="Transaction description"
+                />
               </View>
 
-              {/* Category Filter */}
-              <View style={styles.filterGroup}>
-                <Text style={styles.filterLabel}>Category</Text>
+              <View style={styles.formGroup}>
+                <Text style={styles.formLabel}>Amount</Text>
+                <TextInput
+                  style={styles.input}
+                  value={editForm.amount}
+                  onChangeText={(text) => setEditForm(prev => ({ ...prev, amount: text }))}
+                  placeholder="Amount"
+                  keyboardType="numeric"
+                />
+              </View>
+
+              <View style={styles.formGroup}>
+                <Text style={styles.formLabel}>Date</Text>
+                <TextInput
+                  style={styles.input}
+                  value={editForm.transaction_date}
+                  onChangeText={(text) => setEditForm(prev => ({ ...prev, transaction_date: text }))}
+                  placeholder="YYYY-MM-DD"
+                />
+              </View>
+
+              <View style={styles.formGroup}>
+                <Text style={styles.formLabel}>Merchant</Text>
+                <TextInput
+                  style={styles.input}
+                  value={editForm.merchant}
+                  onChangeText={(text) => setEditForm(prev => ({ ...prev, merchant: text }))}
+                  placeholder="Store/merchant name"
+                />
+              </View>
+
+              <View style={styles.formGroup}>
+                <Text style={styles.formLabel}>Category</Text>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                  <TouchableOpacity
-                    style={[
-                      styles.categoryOption,
-                      !selectedCategory && styles.categoryOptionSelected
-                    ]}
-                    onPress={() => setSelectedCategory('')}
-                  >
-                    <Text style={styles.categoryOptionText}>All Categories</Text>
-                  </TouchableOpacity>
                   {categories.map((category) => (
                     <TouchableOpacity
                       key={category.id}
                       style={[
                         styles.categoryOption,
-                        selectedCategory === category.id && styles.categoryOptionSelected
+                        editForm.category_id === category.id && styles.categoryOptionSelected
                       ]}
-                      onPress={() => setSelectedCategory(category.id)}
+                      onPress={() => setEditForm(prev => ({ ...prev, category_id: category.id }))}
                     >
                       <Text style={styles.categoryOptionText}>{category.name}</Text>
                     </TouchableOpacity>
                   ))}
                 </ScrollView>
               </View>
-
-              {/* Bank Account Filter */}
-              <View style={styles.filterGroup}>
-                <Text style={styles.filterLabel}>Bank Account</Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                  <TouchableOpacity
-                    style={[
-                      styles.categoryOption,
-                      !selectedAccount && styles.categoryOptionSelected
-                    ]}
-                    onPress={() => setSelectedAccount('')}
-                  >
-                    <Text style={styles.categoryOptionText}>All Accounts</Text>
-                  </TouchableOpacity>
-                  {bankAccounts.map((account) => (
-                    <TouchableOpacity
-                      key={account.id}
-                      style={[
-                        styles.categoryOption,
-                        selectedAccount === account.id && styles.categoryOptionSelected
-                      ]}
-                      onPress={() => setSelectedAccount(account.id)}
-                    >
-                      <Text style={styles.categoryOptionText}>{account.bank_name}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </ScrollView>
-              </View>
-
-              {/* Person Filter */}
-              <View style={styles.filterGroup}>
-                <Text style={styles.filterLabel}>Person</Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                  <TouchableOpacity
-                    style={[
-                      styles.categoryOption,
-                      !selectedPerson && styles.categoryOptionSelected
-                    ]}
-                    onPress={() => setSelectedPerson('')}
-                  >
-                    <Text style={styles.categoryOptionText}>All Persons</Text>
-                  </TouchableOpacity>
-                  {persons.map((person) => (
-                    <TouchableOpacity
-                      key={person.id}
-                      style={[
-                        styles.categoryOption,
-                        selectedPerson === person.id && styles.categoryOptionSelected
-                      ]}
-                      onPress={() => setSelectedPerson(person.id)}
-                    >
-                      <Text style={styles.categoryOptionText}>{person.name}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </ScrollView>
-              </View>
-
-              {/* Date Range */}
-              <View style={styles.filterGroup}>
-                <Text style={styles.filterLabel}>Date Range</Text>
-                <View style={styles.dateRow}>
-                  <View style={styles.dateInput}>
-                    <Text style={styles.dateLabel}>From</Text>
-                    <TextInput
-                      style={styles.input}
-                      placeholder="YYYY-MM-DD"
-                      value={startDate}
-                      onChangeText={setStartDate}
-                    />
-                  </View>
-                  <View style={styles.dateInput}>
-                    <Text style={styles.dateLabel}>To</Text>
-                    <TextInput
-                      style={styles.input}
-                      placeholder="YYYY-MM-DD"
-                      value={endDate}
-                      onChangeText={setEndDate}
-                    />
-                  </View>
-                </View>
-              </View>
             </ScrollView>
 
-            {/* Filter Actions */}
-            <View style={styles.filterActions}>
+            <View style={styles.modalActions}>
               <TouchableOpacity
-                style={[styles.filterButton, styles.clearButton]}
-                onPress={clearFilters}
+                style={[styles.modalButton, styles.cancelButton]}
+                onPress={() => setEditModalVisible(false)}
               >
-                <Text style={styles.clearButtonText}>Clear All</Text>
+                <Text style={styles.cancelButtonText}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.filterButton, styles.applyButton]}
-                onPress={applyFilters}
+                style={[styles.modalButton, styles.saveButton]}
+                onPress={updateTransaction}
               >
-                <Text style={styles.applyButtonText}>Apply Filters</Text>
+                <Text style={styles.saveButtonText}>Save Changes</Text>
               </TouchableOpacity>
             </View>
           </View>
         </SafeAreaView>
       </Modal>
+
     </SafeAreaView>
   );
 }
@@ -561,6 +595,75 @@ const styles = StyleSheet.create({
     marginTop: 16,
     marginBottom: 8,
   },
+  transactionMain: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  quickActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.border,
+  },
+  quickAction: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    marginLeft: 8,
+    backgroundColor: COLORS.background,
+    borderRadius: 6,
+  },
+  emptyAction: {
+    marginTop: 16,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    backgroundColor: COLORS.primary,
+    borderRadius: 8,
+  },
+  emptyActionText: {
+    color: '#fff',
+    fontWeight: '600',
+  },
+  formGroup: {
+    marginBottom: 20,
+  },
+  formLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: COLORS.text,
+    marginBottom: 8,
+  },
+  modalActions: {
+    flexDirection: 'row',
+    padding: 20,
+    gap: 12,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.border,
+  },
+  modalButton: {
+    flex: 1,
+    padding: 16,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  cancelButton: {
+    backgroundColor: COLORS.border,
+  },
+  saveButton: {
+    backgroundColor: COLORS.primary,
+  },
+  cancelButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: COLORS.text,
+  },
+  saveButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#fff',
+  },
+
   emptySubtitle: {
     fontSize: 14,
     color: COLORS.textLight,

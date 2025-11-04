@@ -12,28 +12,43 @@ export interface ParsedTransaction {
     static parseTransaction(message: string): ParsedTransaction | null {
       // Bank of Baroda (BOB) Parser
       if (this.isBOBMessage(message)) {
-        return this.parseBOBTransaction(message);
+        const transaction = this.parseBOBTransaction(message);
+        if (transaction) {
+          return { ...transaction, bank: 'Bank of Baroda' };
+        }
       }
       
       // SBI Parser
       if (this.isSBIMessage(message)) {
-        return this.parseSBITransaction(message);
+        const transaction = this.parseSBITransaction(message);
+        if (transaction) {
+          return { ...transaction, bank: 'SBI' };
+        }
       }
       
       // UPI Parser
       if (this.isUPIMessage(message)) {
-        return this.parseUPITransaction(message);
+        const transaction = this.parseUPITransaction(message);
+        if (transaction) {
+          return { ...transaction, bank: 'UPI' };
+        }
       }
       
       return null;
     }
   
     private static isBOBMessage(message: string): boolean {
-      return message.includes('Dr. from A/C') && message.includes('Cr. to');
+      const lowerMessage = message.toLowerCase();
+      return lowerMessage.includes('bob') || 
+             lowerMessage.includes('baroda') ||
+             (lowerMessage.includes('dr. from a/c') && lowerMessage.includes('cr. to'));
     }
   
     private static isSBIMessage(message: string): boolean {
-      return message.includes('Dear UPI user') && message.includes('debited by');
+      const lowerMessage = message.toLowerCase();
+      return lowerMessage.includes('sbi') || 
+             lowerMessage.includes('state bank') ||
+             lowerMessage.includes('dear upi user a/c');
     }
   
     private static isUPIMessage(message: string): boolean {

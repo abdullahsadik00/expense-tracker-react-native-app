@@ -18,8 +18,24 @@ export const ManualSMSImport: React.FC = () => {
   const [smsText, setSmsText] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [detectedCategory, setDetectedCategory] = useState<string>('');
+  const [detectedBank, setDetectedBank] = useState<string>('');
+
   // Add this effect to detect category when SMS text changes
   useEffect(() => {
+    if (smsText.trim()) {
+      // Simple bank detection for preview
+      const lowerText = smsText.toLowerCase();
+      if (lowerText.includes('bob') || lowerText.includes('baroda')) {
+        setDetectedBank('🏦 Bank of Baroda account detected');
+      } else if (lowerText.includes('sbi') || lowerText.includes('state bank')) {
+        setDetectedBank('🏦 SBI account detected');
+      } else {
+        setDetectedBank('🏦 Default account will be used');
+      }
+    } else {
+      setDetectedBank('');
+    }
+
     if (smsText.trim()) {
       // Simulate category detection for preview
       const sampleTransaction = {
@@ -100,6 +116,13 @@ export const ManualSMSImport: React.FC = () => {
         <Text style={styles.subtitle}>
           Paste your bank transaction SMS to automatically add it to your expense tracker
         </Text>
+
+        {detectedBank && (
+  <View style={styles.bankPreview}>
+    <Text style={styles.bankPreviewText}>{detectedBank}</Text>
+  </View>
+)}
+
 
         {/* Quick Actions */}
         <View style={styles.quickActions}>
@@ -203,6 +226,20 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: 16,
   },
+  bankPreview: {
+    backgroundColor: '#EFF6FF',
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 12,
+    borderLeftWidth: 4,
+    borderLeftColor: '#3B82F6',
+  },
+  bankPreviewText: {
+    fontSize: 14,
+    color: '#1E40AF',
+    fontWeight: '500',
+  },
+  
   title: {
     fontSize: 24,
     fontWeight: 'bold',

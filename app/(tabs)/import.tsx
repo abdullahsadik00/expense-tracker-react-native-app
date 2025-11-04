@@ -2,6 +2,8 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
+import { Directory, File, Paths } from 'expo-file-system/next';
+import * as Sharing from 'expo-sharing';
 import React, { useState } from 'react';
 import {
   ActivityIndicator,
@@ -17,6 +19,7 @@ import {
 import Header from '../../components/Header';
 import { backupService } from '../../lib/backup';
 import { db } from '../../lib/database';
+import { SampleDataGenerator } from '../../lib/sampleDataGenerator';
 
 const COLORS = {
   primary: '#1e3a8a',
@@ -388,57 +391,107 @@ export default function ImportScreen() {
       
       setImportProgress(40);
       
-      // Detect header and determine column mapping
-      const headers = lines[0].split(',').map(h => h.toLowerCase().trim());
+      // Detect header and determine column mapping based on your schema
+      const headers = lines[0].split(',').map(h => h.toLowerCase().trim().replace(/"/g, ''));
       
-      let dateIndex = headers.findIndex(h => h.includes('date'));
-      let descIndex = headers.findIndex(h => h.includes('desc') || h.includes('description'));
-      let amountIndex = headers.findIndex(h => h.includes('amount') || h.includes('value'));
-      let categoryIndex = headers.findIndex(h => h.includes('category') || h.includes('type'));
-      let typeIndex = headers.findIndex(h => h.includes('type'));
+      // Map headers to your database columns
+      const columnMap: { [key: string]: number } = {};
+      headers.forEach((header, index) => {
+        columnMap[header] = index;
+      });
       
-      // Fallback to first columns if not found
-      if (dateIndex === -1) dateIndex = 0;
-      if (descIndex === -1) descIndex = 1;
-      if (amountIndex === -1) amountIndex = 2;
-      if (categoryIndex === -1) categoryIndex = 3;
-      if (typeIndex === -1) typeIndex = 4;
+      // Get required data for mapping
+      const bankAccounts = await db.getBankAccounts();
+      const persons = await db.getPersons();
+      const categories = await db.getCategories();
       
       setImportProgress(60);
       
       // Process each data row
-      const transactions: ImportTransaction[] = [];
+      const transactions: any[] = [];
       for (let i = 1; i < lines.length; i++) {
         const line = lines[i].trim();
         if (!line) continue;
         
         const columns = line.split(',').map(col => col.trim().replace(/^"|"$/g, ''));
         
-        if (columns.length >= Math.max(dateIndex, descIndex, amountIndex) + 1) {
-          const date = parseDate(columns[dateIndex]);
-          const description = columns[descIndex] || 'Imported Transaction';
-          const amount = parseFloat(columns[amountIndex]) || 0;
-          const category = columns[categoryIndex] || '';
-          const typeFromColumn = columns[typeIndex] || '';
+        try {
+          // Extract data based on column mapping
+          const transaction_date = columns[columnMap['transaction_date']] || new Date().toISOString().split('T')[0];
+          const description = columns[columnMap['description']] || 'Imported Transaction';
+          const amount = parseFloat(columns[columnMap['amount']]) || 0;
+          const type = (columns[columnMap['type']] || (amount >= 0 ? 'income' : 'expense')) as 'income' | 'expense' | 'transfer';
+          const categoryName = columns[columnMap['category']] || '';
+          const merchant = columns[columnMap['merchant']] || '';
+          const notes = columns[columnMap['notes']] || '';
+          const is_recurring = columns[columnMap['is_recurring']]?.toLowerCase() === 'true';
+          const is_investment = columns[columnMap['is_investment']]?.toLowerCase() === 'true';
+          const is_verified = columns[columnMap['is_verified']]?.toLowerCase() === 'true';
           
-          if (date && description && !isNaN(amount)) {
-            // Determine transaction type safely
-            const transactionType = toTransactionType(typeFromColumn, amount);
-            
+          // Find category ID
+          let category_id = '66666666-6666-6666-6666-666666666670'; // Default: Shopping
+          if (categoryName) {
+            const foundCategory = categories.find(cat => 
+              cat.name.toLowerCase() === categoryName.toLowerCase()
+            );
+            if (foundCategory) {
+              category_id = foundCategory.id;
+            }
+          }
+          
+          // Auto-detect bank account based on content
+          let bank_account_id = bankAccounts[0]?.id; // Default to first account
+          const combinedText = (description + ' ' + merchant + ' ' + notes).toLowerCase();
+          if (combinedText.includes('bob') || combinedText.includes('baroda')) {
+            const bobAccount = bankAccounts.find(acc => 
+              acc.bank_name.toLowerCase().includes('baroda')
+            );
+            if (bobAccount) bank_account_id = bobAccount.id;
+          } else if (combinedText.includes('sbi') || combinedText.includes('state bank')) {
+            const sbiAccount = bankAccounts.find(acc => 
+              acc.bank_name.toLowerCase().includes('sbi')
+            );
+            if (sbiAccount) bank_account_id = sbiAccount.id;
+          }
+          
+          // Auto-detect person based on smart rules
+          let person_id = persons[0]?.id; // Default to first person
+          const sadikNames = ['aliabbas', 'shehnaz', 'ayesha', 'parveen', 'zain', 'faiza', 'nilofar', 'sana', 'wasi'];
+          const isSadikPayment = sadikNames.some(name => 
+            combinedText.includes(name)
+          );
+          
+          if (type === 'income') {
+            if (isSadikPayment) {
+              // Find Sadik
+              const sadik = persons.find(p => p.name.toLowerCase().includes('sadik'));
+              if (sadik) person_id = sadik.id;
+            } else if (combinedText.includes('business') || combinedText.includes('fabrication')) {
+              // Find Dad for business income
+              const dad = persons.find(p => p.role === 'business_owner' || p.name.toLowerCase().includes('dad'));
+              if (dad) person_id = dad.id;
+            }
+          }
+          
+          if (transaction_date && description && !isNaN(amount)) {
             transactions.push({
-              bank_account_id: 'account_1',
-              category_id: getCategoryId(category),
-              person_id: 'user_1',
-              transaction_date: date,
-              amount: amount,
-              type: transactionType,
-              description: description,
-              merchant: '',
-              is_recurring: false,
-              is_investment: false,
-              is_verified: true,
+              bank_account_id,
+              category_id,
+              person_id,
+              transaction_date,
+              amount,
+              type,
+              description,
+              merchant,
+              notes,
+              is_recurring,
+              is_investment,
+              is_verified,
+              source: 'csv_import',
             });
           }
+        } catch (rowError) {
+          console.warn(`Skipping row ${i + 1} due to error:`, rowError);
         }
         
         // Update progress
@@ -449,12 +502,27 @@ export default function ImportScreen() {
       
       // Import to database
       let importedCount = 0;
+      let errorCount = 0;
+      
       for (const transaction of transactions) {
-        await db.createTransaction(transaction);
-        importedCount++;
+        try {
+          await db.createTransaction(transaction);
+          importedCount++;
+        } catch (error) {
+          console.error('Error importing transaction:', error);
+          errorCount++;
+        }
       }
       
-      console.log(`Imported ${importedCount} transactions from CSV`);
+      console.log(`Imported ${importedCount} transactions from CSV, ${errorCount} errors`);
+      
+      if (errorCount > 0) {
+        Alert.alert(
+          'Import Completed with Errors', 
+          `Successfully imported ${importedCount} transactions. ${errorCount} transactions failed.`
+        );
+      }
+      
       setImportProgress(100);
       
     } catch (error) {
@@ -463,130 +531,263 @@ export default function ImportScreen() {
     }
   };
 
+  
+
+  const downloadCSVTemplate = async () => {
+    try {
+      const csvContent = SampleDataGenerator.generateCSVSample();
+  
+      // 1️⃣ Access the app’s Documents directory
+      const docsDir = new Directory(Paths.document);
+  
+      // 2️⃣ Create a file handle
+      const file = new File(docsDir, 'expense_tracker_template.csv');
+  
+      // 3️⃣ Write data
+      await file.write(csvContent, { encoding: 'utf8' });
+  
+      // 4️⃣ Share
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(file.uri, {
+          mimeType: 'text/csv',
+          dialogTitle: 'Download Expense Tracker Template',
+        });
+      } else {
+        Alert.alert(
+          'Template Downloaded',
+          'CSV template saved to your device. You can now fill it with your data.',
+          [{ text: 'OK' }]
+        );
+      }
+    } catch (error) {
+      console.error('Download error:', error);
+      Alert.alert('Error', 'Failed to download template');
+    }
+  };
+    
+  const showExcelInstructions = () => {
+    const instructions = SampleDataGenerator.generateExcelSampleInstructions();
+    Alert.alert(
+      'Excel Template Instructions',
+      instructions,
+      [
+        { text: 'OK', style: 'default' },
+        { 
+          text: 'Copy Instructions', 
+          onPress: () => {
+            // You could copy to clipboard here
+            Alert.alert('Copied', 'Instructions copied to clipboard');
+          }
+        }
+      ]
+    );
+  };
+
+  const showSupportedCategories = () => {
+    const categories = SampleDataGenerator.getSupportedCategories();
+    Alert.alert(
+      'Supported Categories',
+      categories.join('\n• '),
+      [{ text: 'OK', style: 'default' }]
+    );
+  };
+
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor={COLORS.primary} />
-      <Header title="Import Data" subtitle="Import transactions from various sources" />
-      
-      <ScrollView style={styles.scroll}>
-        {importing && (
-          <View style={styles.progressContainer}>
-            <Text style={styles.progressTitle}>
-              Importing {currentFile} Data...
+    <StatusBar barStyle="light-content" backgroundColor={COLORS.primary} />
+    <Header title="Import Data" subtitle="Import transactions from various sources" />
+    
+    <ScrollView style={styles.scroll}>
+      {importing && (
+        <View style={styles.progressContainer}>
+          <Text style={styles.progressTitle}>
+            Importing {currentFile} Data...
+          </Text>
+          <View style={styles.progressBar}>
+            <View 
+              style={[
+                styles.progressFill,
+                { width: `${importProgress}%` }
+              ]} 
+            />
+          </View>
+          <Text style={styles.progressText}>{importProgress}%</Text>
+          <ActivityIndicator size="large" color={COLORS.primary} style={styles.loader} />
+        </View>
+      )}
+
+      {/* Template Download Section */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Download Templates</Text>
+        
+        {/* CSV Template Download */}
+        <TouchableOpacity 
+          style={styles.templateOption}
+          onPress={downloadCSVTemplate}
+        >
+          <View style={[styles.optionIcon, { backgroundColor: '#10b98120' }]}>
+            <MaterialCommunityIcons name="file-delimited" size={32} color="#10b981" />
+          </View>
+          <View style={styles.optionContent}>
+            <Text style={styles.optionTitle}>Download CSV Template</Text>
+            <Text style={styles.optionDescription}>
+              Get a pre-formatted CSV template with sample data and instructions
             </Text>
-            <View style={styles.progressBar}>
-              <View 
-                style={[
-                  styles.progressFill,
-                  { width: `${importProgress}%` }
-                ]} 
-              />
-            </View>
-            <Text style={styles.progressText}>{importProgress}%</Text>
-            <ActivityIndicator size="large" color={COLORS.primary} style={styles.loader} />
           </View>
-        )}
+          <MaterialCommunityIcons name="download" size={24} color={COLORS.textLight} />
+        </TouchableOpacity>
 
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Import Options</Text>
-          
-          {/* Excel Import */}
-          <TouchableOpacity 
-            style={[styles.importOption, importing && styles.importOptionDisabled]}
-            onPress={handleExcelImport}
-            disabled={importing}
-          >
-            <View style={[styles.optionIcon, { backgroundColor: '#10b98120' }]}>
-              <MaterialCommunityIcons name="microsoft-excel" size={32} color="#10b981" />
-            </View>
-            <View style={styles.optionContent}>
-              <Text style={styles.optionTitle}>Import from Excel</Text>
-              <Text style={styles.optionDescription}>
-                Import transactions from Excel spreadsheets (.xlsx, .xls)
-              </Text>
-            </View>
-            <MaterialCommunityIcons name="chevron-right" size={24} color={COLORS.textLight} />
-          </TouchableOpacity>
+        {/* Excel Instructions */}
+        <TouchableOpacity 
+          style={styles.templateOption}
+          onPress={showExcelInstructions}
+        >
+          <View style={[styles.optionIcon, { backgroundColor: '#3b82f620' }]}>
+            <MaterialCommunityIcons name="microsoft-excel" size={32} color="#3b82f6" />
+          </View>
+          <View style={styles.optionContent}>
+            <Text style={styles.optionTitle}>Excel Template Guide</Text>
+            <Text style={styles.optionDescription}>
+              View formatting instructions and requirements for Excel files
+            </Text>
+          </View>
+          <MaterialCommunityIcons name="information" size={24} color={COLORS.textLight} />
+        </TouchableOpacity>
 
-          {/* CSV Import */}
-          <TouchableOpacity 
-            style={[styles.importOption, importing && styles.importOptionDisabled]}
-            onPress={handleCSVImport}
-            disabled={importing}
-          >
-            <View style={[styles.optionIcon, { backgroundColor: '#3b82f620' }]}>
-              <MaterialCommunityIcons name="file-delimited" size={32} color="#3b82f6" />
-            </View>
-            <View style={styles.optionContent}>
-              <Text style={styles.optionTitle}>Import from CSV</Text>
-              <Text style={styles.optionDescription}>
-                Import transactions from CSV files with date, description, amount columns
-              </Text>
-            </View>
-            <MaterialCommunityIcons name="chevron-right" size={24} color={COLORS.textLight} />
-          </TouchableOpacity>
+        {/* Supported Categories */}
+        <TouchableOpacity 
+          style={styles.templateOption}
+          onPress={showSupportedCategories}
+        >
+          <View style={[styles.optionIcon, { backgroundColor: '#f59e0b20' }]}>
+            <MaterialCommunityIcons name="format-list-bulleted" size={32} color="#f59e0b" />
+          </View>
+          <View style={styles.optionContent}>
+            <Text style={styles.optionTitle}>Supported Categories</Text>
+            <Text style={styles.optionDescription}>
+              View all available transaction categories for classification
+            </Text>
+          </View>
+          <MaterialCommunityIcons name="chevron-right" size={24} color={COLORS.textLight} />
+        </TouchableOpacity>
+      </View>
 
-          {/* JSON Backup Import */}
-          <TouchableOpacity 
-            style={[styles.importOption, importing && styles.importOptionDisabled]}
-            onPress={handleJsonImport}
-            disabled={importing}
-          >
-            <View style={[styles.optionIcon, { backgroundColor: '#f59e0b20' }]}>
-              <MaterialCommunityIcons name="backup-restore" size={32} color="#f59e0b" />
-            </View>
-            <View style={styles.optionContent}>
-              <Text style={styles.optionTitle}>Restore Backup</Text>
-              <Text style={styles.optionDescription}>
-                Restore your data from a previously exported JSON backup file
-              </Text>
-            </View>
-            <MaterialCommunityIcons name="chevron-right" size={24} color={COLORS.textLight} />
-          </TouchableOpacity>
+      {/* Import Options Section */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Import Data</Text>
+        
+        {/* Excel Import */}
+        <TouchableOpacity 
+          style={[styles.importOption, importing && styles.importOptionDisabled]}
+          onPress={handleExcelImport}
+          disabled={importing}
+        >
+          <View style={[styles.optionIcon, { backgroundColor: '#10b98120' }]}>
+            <MaterialCommunityIcons name="microsoft-excel" size={32} color="#10b981" />
+          </View>
+          <View style={styles.optionContent}>
+            <Text style={styles.optionTitle}>Import from Excel</Text>
+            <Text style={styles.optionDescription}>
+              Import transactions from Excel spreadsheets (.xlsx, .xls)
+            </Text>
+          </View>
+          <MaterialCommunityIcons name="chevron-right" size={24} color={COLORS.textLight} />
+        </TouchableOpacity>
+
+        {/* CSV Import */}
+        <TouchableOpacity 
+          style={[styles.importOption, importing && styles.importOptionDisabled]}
+          onPress={handleCSVImport}
+          disabled={importing}
+        >
+          <View style={[styles.optionIcon, { backgroundColor: '#3b82f620' }]}>
+            <MaterialCommunityIcons name="file-delimited" size={32} color="#3b82f6" />
+          </View>
+          <View style={styles.optionContent}>
+            <Text style={styles.optionTitle}>Import from CSV</Text>
+            <Text style={styles.optionDescription}>
+              Import transactions from CSV files with date, description, amount columns
+            </Text>
+          </View>
+          <MaterialCommunityIcons name="chevron-right" size={24} color={COLORS.textLight} />
+        </TouchableOpacity>
+
+        {/* JSON Backup Import */}
+        <TouchableOpacity 
+          style={[styles.importOption, importing && styles.importOptionDisabled]}
+          onPress={handleJsonImport}
+          disabled={importing}
+        >
+          <View style={[styles.optionIcon, { backgroundColor: '#f59e0b20' }]}>
+            <MaterialCommunityIcons name="backup-restore" size={32} color="#f59e0b" />
+          </View>
+          <View style={styles.optionContent}>
+            <Text style={styles.optionTitle}>Restore Backup</Text>
+            <Text style={styles.optionDescription}>
+              Restore your data from a previously exported JSON backup file
+            </Text>
+          </View>
+          <MaterialCommunityIcons name="chevron-right" size={24} color={COLORS.textLight} />
+        </TouchableOpacity>
+      </View>
+
+      {/* Import Instructions */}
+      <View style={styles.instructionsSection}>
+        <Text style={styles.instructionsTitle}>Import Instructions</Text>
+        
+        <View style={styles.instructionItem}>
+          <MaterialCommunityIcons name="download" size={20} color="#10b981" />
+          <View style={styles.instructionContent}>
+            <Text style={styles.instructionTitle}>Step 1: Download Template</Text>
+            <Text style={styles.instructionText}>
+              Download the CSV template or follow Excel instructions to format your data correctly
+            </Text>
+          </View>
         </View>
 
-        {/* Import Instructions */}
-        <View style={styles.instructionsSection}>
-          <Text style={styles.instructionsTitle}>Import Instructions</Text>
-          
-          <View style={styles.instructionItem}>
-            <MaterialCommunityIcons name="microsoft-excel" size={20} color="#10b981" />
-            <View style={styles.instructionContent}>
-              <Text style={styles.instructionTitle}>Excel Format</Text>
-              <Text style={styles.instructionText}>
-                Ensure your Excel file has columns: Date, Description, Amount, Category, Type
-              </Text>
-            </View>
-          </View>
-
-          <View style={styles.instructionItem}>
-            <MaterialCommunityIcons name="file-delimited" size={20} color="#3b82f6" />
-            <View style={styles.instructionContent}>
-              <Text style={styles.instructionTitle}>CSV Format</Text>
-              <Text style={styles.instructionText}>
-                • Supported formats: Date, Description, Amount, Category, Type{'\n'}
-                • Date formats: YYYY-MM-DD, MM/DD/YYYY, DD/MM/YYYY{'\n'}
-                • Type: income, expense, or transfer (optional - auto-detected from amount){'\n'}
-                • Amount: Positive for income, negative for expenses
-              </Text>
-            </View>
-          </View>
-
-          <View style={styles.instructionItem}>
-            <MaterialCommunityIcons name="alert" size={20} color={COLORS.accent} />
-            <View style={styles.instructionContent}>
-              <Text style={styles.instructionTitle}>Important Notes</Text>
-              <Text style={styles.instructionText}>
-                • Backup your data before importing{'\n'}
-                • Imported transactions will be added to your existing data{'\n'}
-                • Large files may take longer to process{'\n'}
-                • Check the format requirements before importing
-              </Text>
-            </View>
+        <View style={styles.instructionItem}>
+          <MaterialCommunityIcons name="file-edit" size={20} color="#3b82f6" />
+          <View style={styles.instructionContent}>
+            <Text style={styles.instructionTitle}>Step 2: Fill Your Data</Text>
+            <Text style={styles.instructionText}>
+              • Date: Use any standard date format{'\n'}
+              • Description: Clear transaction description{'\n'}
+              • Amount: Negative for expenses, positive for income{'\n'}
+              • Category: Choose from supported categories (optional){'\n'}
+              • Type: income/expense/transfer (optional - auto-detected)
+            </Text>
           </View>
         </View>
-      </ScrollView>
-    </SafeAreaView>
+
+        <View style={styles.instructionItem}>
+          <MaterialCommunityIcons name="upload" size={20} color="#f59e0b" />
+          <View style={styles.instructionContent}>
+            <Text style={styles.instructionTitle}>Step 3: Import Data</Text>
+            <Text style={styles.instructionText}>
+              • Select your filled file{'\n'}
+              • Review the import preview{'\n'}
+              • Confirm to add transactions{'\n'}
+              • Check transactions list for imported data
+            </Text>
+          </View>
+        </View>
+
+        <View style={styles.instructionItem}>
+          <MaterialCommunityIcons name="alert" size={20} color={COLORS.accent} />
+          <View style={styles.instructionContent}>
+            <Text style={styles.instructionTitle}>Important Notes</Text>
+            <Text style={styles.instructionText}>
+              • Backup your data before importing{'\n'}
+              • Large files may take longer to process{'\n'}
+              • Check transaction categories after import{'\n'}
+              • You can edit transactions after importing
+            </Text>
+          </View>
+        </View>
+      </View>
+    </ScrollView>
+  </SafeAreaView>
+
   );
 }
 
@@ -604,6 +805,19 @@ const styles = StyleSheet.create({
     padding: 20,
     borderRadius: 12,
     alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  templateOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.surface,
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 12,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,

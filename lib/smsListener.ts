@@ -151,7 +151,7 @@ export class SMSListener {
     if (this.isTransactionMessage(message)) {
       console.log('💰 Transaction SMS detected');
       await notificationHandler.processNotification({ 
-        message,
+        message, // Pass the full message for bank detection
         sender,
         source: 'sms',
         timestamp: new Date().toISOString()
@@ -159,7 +159,7 @@ export class SMSListener {
     } else {
       console.log('📨 Non-transaction SMS, ignoring');
     }
-  }
+  }  
 
   // Check if message is likely a transaction
   private static isTransactionMessage(message: string): boolean {
