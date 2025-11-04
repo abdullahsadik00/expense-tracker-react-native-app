@@ -1,7 +1,8 @@
 // lib/notificationHandler.ts
 import { Alert, Platform, ToastAndroid } from 'react-native';
 import { BankSpecificParser } from './bankSpecificParser';
-import { db } from './database';
+import { db, Person } from './database';
+import { SmartCategoryMapper } from './smartCategoryMapper';
 
 interface TransactionNotification {
   id: string;
@@ -440,66 +441,123 @@ private determineTransactionType(message: string): 'income' | 'expense' {
   }
 
   // Add transaction to database
-  // In lib/notificationHandler.ts - Update this method
-private async addTransactionFromNotification(transaction: TransactionNotification): Promise<boolean> {
-  try {
-    this.log('debug', '💾 Preparing database transaction', transaction);
-    
-    // Get the first available bank account instead of hardcoded ID
-    const bankAccounts = await db.getBankAccounts();
-    if (!bankAccounts || bankAccounts.length === 0) {
-      this.log('error', '❌ No bank accounts found in database');
-      throw new Error('No bank accounts available. Please add a bank account first.');
-    }
-    
-    // Get persons to use a valid person_id
-    const persons = await db.getPersons();
-    if (!persons || persons.length === 0) {
-      this.log('error', '❌ No persons found in database');
-      throw new Error('No persons available in database.');
-    }
-    
-    // Use the first bank account and first person
-    const defaultBankAccount = bankAccounts[0];
-    const defaultPerson = persons[0]; // This will be "Sadik Shaikh"
-    
-    const dbTransaction = {
-      bank_account_id: defaultBankAccount.id,
-      category_id: this.mapCategory(transaction.category) || '66666666-6666-6666-6666-666666666670', // shopping category
-      person_id: defaultPerson.id, // Use valid person ID from database
-      transaction_date: transaction.date,
-      amount: transaction.amount,
-      type: transaction.type,
-      description: transaction.description,
-      merchant: transaction.merchant || '',
-      is_recurring: false,
-      is_investment: false,
-      is_verified: true,
-      source: 'notification',
-    };
-
-    this.log('info', '💾 Creating transaction in database', {
-      ...dbTransaction,
-      bank_account_name: defaultBankAccount.bank_name,
-      person_name: defaultPerson.name
-    });
-    
-    await db.createTransaction(dbTransaction);
-    
-    this.log('info', '✅ Transaction successfully added to database', {
-      id: transaction.id,
-      amount: transaction.amount,
-      description: transaction.description,
-      bank_account: defaultBankAccount.bank_name,
-      person: defaultPerson.name
-    });
-    
-    return true;
-  } catch (error) {
-    this.log('error', '💥 Error adding transaction to database', error);
-    throw error;
+  private async addTransactionFromNotification(transaction: TransactionNotification): Promise<boolean> {
+    try {
+      this.log('debug', '💾 Preparing database transaction', transaction);
+      
+      // Get the first available bank account instead of hardcoded ID
+      const bankAccounts = await db.getBankAccounts();
+      if (!bankAccounts || bankAccounts.length === 0) {
+        this.log('error', '❌ No bank accounts found in database');
+        throw new Error('No bank accounts available. Please add a bank account first.');
+      }
+      
+      // Get persons to use a valid person_id
+      const persons = await db.getPersons();
+      if (!persons || persons.length === 0) {
+        this.log('error', '❌ No persons found in database');
+        throw new Error('No persons available in database.');
+      }
+      
+      // Use the first bank account
+      const defaultBankAccount = bankAccounts[0];
+      
+      // Smart category mapping
+      const categoryMapping = SmartCategoryMapper.mapTransaction(
+        transaction.description,
+        transaction.merchant || '',
+        Math.abs(transaction.amount),
+        transaction.type
+      );
+      
+      // Find appropriate person based on person_type
+      // Enhanced person finding in addTransactionFromNotification
+const findPersonByType = (persons: Person[], personType: string): Person => {
+  const defaultPerson = persons[0];
+  
+  switch (personType) {
+    case 'user':
+      // Find Sadik
+      const sadik = persons.find(p => p.name.toLowerCase().includes('sadik'));
+      return sadik || defaultPerson;
+      
+    case 'dad_business':
+      // Find Dad
+      const dad = persons.find(p => p.name.toLowerCase().includes('dad') || p.role === 'business_owner');
+      return dad || defaultPerson;
+      
+    case 'mom':
+      // Find Mom
+      const mom = persons.find(p => p.name.toLowerCase().includes('mom'));
+      return mom || defaultPerson;
+      
+    case 'shared':
+      // Use default (Sadik) for shared expenses
+      return defaultPerson;
+      
+    default:
+      return defaultPerson;
   }
-}
+};
+
+// Then use it:
+let defaultPerson = findPersonByType(persons, categoryMapping.person_type || 'user');
+      
+      if (categoryMapping.person_type) {
+        const matchedPerson = persons.find(person => {
+          // Map person_type to role
+          if (categoryMapping.person_type === 'user') return person.role === 'family_member';
+          if (categoryMapping.person_type === 'dad_business') return person.name.toLowerCase().includes('dad');
+          if (categoryMapping.person_type === 'mom') return person.name.toLowerCase().includes('mom');
+          if (categoryMapping.person_type === 'shared') return person.role === 'family_member';
+          return false;
+        });
+        
+        if (matchedPerson) {
+          defaultPerson = matchedPerson;
+        }
+      }
+  
+      const dbTransaction = {
+        bank_account_id: defaultBankAccount.id,
+        category_id: categoryMapping.category_id,
+        person_id: defaultPerson.id,
+        transaction_date: transaction.date,
+        amount: transaction.amount,
+        type: transaction.type,
+        description: categoryMapping.description,
+        merchant: transaction.merchant || '',
+        is_recurring: false,
+        is_investment: false,
+        is_verified: true,
+        source: 'notification',
+      };
+  
+      this.log('info', '💾 Creating transaction in database', {
+        ...dbTransaction,
+        bank_account_name: defaultBankAccount.bank_name,
+        person_name: defaultPerson.name,
+        smart_category: categoryMapping
+      });
+      
+      await db.createTransaction(dbTransaction);
+      
+      this.log('info', '✅ Transaction successfully added to database', {
+        id: transaction.id,
+        amount: transaction.amount,
+        description: categoryMapping.description,
+        category: categoryMapping.category_id,
+        bank_account: defaultBankAccount.bank_name,
+        person: defaultPerson.name
+      });
+      
+      return true;
+    } catch (error) {
+      this.log('error', '💥 Error adding transaction to database', error);
+      throw error;
+    }
+  }
+  
   
 
   // Map category names to category IDs

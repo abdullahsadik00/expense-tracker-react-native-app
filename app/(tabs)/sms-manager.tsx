@@ -1,6 +1,6 @@
 // app/(tabs)/sms-manager.tsx
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Header from '../../components/Header';
 import { ManualSMSImport } from '../../components/ManualSMSImport';
 import { NotificationListener } from '../../lib/notificationListener';
@@ -75,78 +75,6 @@ export default function SMSManagerScreen() {
     <View style={styles.container}>
       <Header title="Transaction Import" subtitle="Add transactions manually or automatically from notifications" />
       <ScrollView style={styles.scroll}>
-        
-        {/* Notification Listener Section */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>🔔 Automatic Notification Import</Text>
-          <Text style={styles.sectionSubtitle}>
-            Listen to banking app notifications for automatic transaction detection
-          </Text>
-
-          <View style={styles.statusContainer}>
-            <Text style={styles.statusLabel}>Notification Permissions:</Text>
-            <Text style={[styles.statusValue, notificationPermission ? styles.success : styles.error]}>
-              {notificationPermission ? '✅ Granted' : '❌ Not Granted'}
-            </Text>
-          </View>
-
-          <View style={styles.statusContainer}>
-            <Text style={styles.statusLabel}>Listener Status:</Text>
-            <Text style={[styles.statusValue, isNotificationListening ? styles.success : styles.error]}>
-              {isNotificationListening ? '✅ Listening' : '❌ Stopped'}
-            </Text>
-          </View>
-
-          {!notificationPermission && (
-            <TouchableOpacity 
-              style={[styles.button, loading && styles.disabledButton]} 
-              onPress={requestNotificationPermissions}
-              disabled={loading}
-            >
-              {loading ? (
-                <ActivityIndicator color="white" />
-              ) : (
-                <Text style={styles.buttonText}>🔔 Enable Notifications</Text>
-              )}
-            </TouchableOpacity>
-          )}
-
-          {notificationPermission && !isNotificationListening && (
-            <TouchableOpacity 
-              style={[styles.button, styles.successButton]} 
-              onPress={startNotificationListening}
-            >
-              <Text style={styles.buttonText}>🚀 Start Auto-Import</Text>
-            </TouchableOpacity>
-          )}
-
-          {notificationPermission && isNotificationListening && (
-            <TouchableOpacity 
-              style={[styles.button, styles.errorButton]} 
-              onPress={stopNotificationListening}
-            >
-              <Text style={styles.buttonText}>🛑 Stop Auto-Import</Text>
-            </TouchableOpacity>
-          )}
-
-          <TouchableOpacity 
-            style={[styles.button, styles.testButton]} 
-            onPress={sendTestNotification}
-          >
-            <Text style={styles.buttonText}>🧪 Send Test Notification</Text>
-          </TouchableOpacity>
-
-          <View style={styles.note}>
-            <Text style={styles.noteTitle}>How Notification Import Works:</Text>
-            <Text style={styles.noteText}>
-              • Listens to notifications from banking apps{'\n'}
-              • Automatically detects transaction alerts{'\n'}
-              • Processes them into your expense tracker{'\n'}
-              • Works with HDFC, ICICI, SBI, UPI apps{'\n'}
-              • Requires notification permission
-            </Text>
-          </View>
-        </View>
 
         {/* Manual SMS Import Section */}
         <View style={styles.section}>

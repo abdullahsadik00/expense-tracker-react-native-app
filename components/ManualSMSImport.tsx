@@ -1,22 +1,41 @@
 // components/ManualSMSImport.tsx
-import React, { useState } from 'react';
-import { 
-  View, 
-  Text, 
-  TextInput, 
-  TouchableOpacity, 
-  ScrollView, 
-  StyleSheet, 
+import * as Clipboard from 'expo-clipboard';
+import React, { useEffect, useState } from 'react';
+import {
   Alert,
   KeyboardAvoidingView,
-  Platform 
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View
 } from 'react-native';
-import * as Clipboard from 'expo-clipboard';
 import { SMSListener } from '../lib/smsListener';
 
 export const ManualSMSImport: React.FC = () => {
   const [smsText, setSmsText] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
+  const [detectedCategory, setDetectedCategory] = useState<string>('');
+  // Add this effect to detect category when SMS text changes
+  useEffect(() => {
+    if (smsText.trim()) {
+      // Simulate category detection for preview
+      const sampleTransaction = {
+        description: 'Transaction from SMS',
+        merchant: '',
+        amount: -100,
+        type: 'expense' as const
+      };
+
+      // You can show a preview of how it would be categorized
+      setDetectedCategory('Category will be automatically detected based on content');
+    } else {
+      setDetectedCategory('');
+    }
+  }, [smsText]);
+
 
   // Paste from clipboard
   const pasteFromClipboard = async () => {
@@ -67,12 +86,12 @@ export const ManualSMSImport: React.FC = () => {
       income: 'You have received INR 5,000.00 from John Doe. Your account balance is now INR 17,000.00',
       upi: 'INR 300.00 paid to Amazon India via UPI. Ref No 789012. Bal: INR 8,450.00'
     };
-    
+
     setSmsText(samples[type] || '');
   };
 
   return (
-    <KeyboardAvoidingView 
+    <KeyboardAvoidingView
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
@@ -95,25 +114,25 @@ export const ManualSMSImport: React.FC = () => {
         {/* Sample SMS Buttons */}
         <Text style={styles.sectionTitle}>Try Sample SMS:</Text>
         <View style={styles.sampleButtons}>
-          <TouchableOpacity 
+          <TouchableOpacity
             style={styles.sampleButton}
             onPress={() => insertSampleSMS('hdfc')}
           >
             <Text style={styles.sampleButtonText}>HDFC Expense</Text>
           </TouchableOpacity>
-          <TouchableOpacity 
+          <TouchableOpacity
             style={styles.sampleButton}
             onPress={() => insertSampleSMS('icici')}
           >
             <Text style={styles.sampleButtonText}>ICICI Debit</Text>
           </TouchableOpacity>
-          <TouchableOpacity 
+          <TouchableOpacity
             style={styles.sampleButton}
             onPress={() => insertSampleSMS('income')}
           >
             <Text style={styles.sampleButtonText}>Income</Text>
           </TouchableOpacity>
-          <TouchableOpacity 
+          <TouchableOpacity
             style={styles.sampleButton}
             onPress={() => insertSampleSMS('upi')}
           >
@@ -139,7 +158,7 @@ export const ManualSMSImport: React.FC = () => {
         </Text>
 
         {/* Process Button */}
-        <TouchableOpacity 
+        <TouchableOpacity
           style={[styles.processButton, isProcessing && styles.disabledButton]}
           onPress={processManualSMS}
           disabled={isProcessing}
